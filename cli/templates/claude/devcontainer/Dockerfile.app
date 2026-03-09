@@ -6,8 +6,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends gh gosu jq vim \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --chmod=755 scripts/app-init.sh /usr/local/bin/app-init.sh
-COPY --chmod=755 scripts/app-user-init.sh /usr/local/bin/app-user-init.sh
+COPY --chmod=755 sandcat/scripts/app-init.sh /usr/local/bin/app-init.sh
+COPY --chmod=755 sandcat/scripts/app-user-init.sh /usr/local/bin/app-user-init.sh
 
 USER vscode
 
@@ -19,7 +19,7 @@ ENV PATH="/home/vscode/.local/bin:/home/vscode/.local/share/mise/shims:$PATH"
 RUN mise use -g node@lts \
     && npm install -g @anthropic-ai/claude-code
 
-# Add your language toolchain here, e.g.:
+# CUSTOMIZE: add your language toolchain here, e.g.:
 #   RUN mise use -g python@3.13
 #   RUN mise use -g rust@latest
 #   RUN mise use -g java@21
