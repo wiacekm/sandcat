@@ -10,6 +10,34 @@ import pytest
 # Stub out mitmproxy imports so tests run without installing mitmproxy
 _ctx = MagicMock()
 _http = types.ModuleType("mitmproxy.http")
+_dns = types.ModuleType("mitmproxy.dns")
+
+
+class _DNSQuestion:
+    def __init__(self, name):
+        self.name = name
+
+
+class _DNSMessage:
+    def __init__(self, questions=None):
+        self.questions = questions or []
+
+    @property
+    def question(self):
+        if len(self.questions) == 1:
+            return self.questions[0]
+        return None
+
+    def fail(self, response_code):
+        return {"failed": True, "response_code": response_code}
+
+
+class _ResponseCodes:
+    REFUSED = 5
+
+
+_dns.DNSFlow = type("DNSFlow", (), {})
+_dns.response_codes = _ResponseCodes()
 
 
 class _Headers(dict):
@@ -41,8 +69,10 @@ _http.Response = _Response
 sys.modules["mitmproxy"] = types.ModuleType("mitmproxy")
 sys.modules["mitmproxy.ctx"] = _ctx
 sys.modules["mitmproxy.http"] = _http
+sys.modules["mitmproxy.dns"] = _dns
 sys.modules["mitmproxy"].ctx = _ctx
 sys.modules["mitmproxy"].http = _http
+sys.modules["mitmproxy"].dns = _dns
 
 # Import after mitmproxy stubs are installed in sys.modules above.
 from mitmproxy_addon import SandcatAddon, SETTINGS_PATHS  # noqa: E402
@@ -57,6 +87,16 @@ def _make_flow(method="GET", host="example.com", url=None, headers=None, content
         headers=headers,
         content=content,
     )
+    flow.response = None
+    return flow
+
+
+def _make_dns_flow(name="example.com"):
+    flow = MagicMock()
+    if name is None:
+        flow.request = _DNSMessage(questions=[])
+    else:
+        flow.request = _DNSMessage(questions=[_DNSQuestion(name)])
     flow.response = None
     return flow
 
@@ -135,6 +175,14 @@ class TestNetworkRules:
             {"action": "allow", "host": "*", "method": "get"},
         ]
         assert addon._is_request_allowed("GET", "example.com") is True
+
+    def test_none_method_bypasses_method_check(self):
+        addon = SandcatAddon()
+        addon.network_rules = [
+            {"action": "allow", "host": "*", "method": "GET"},
+        ]
+        assert addon._is_request_allowed(None, "example.com") is True
+
 
 
 # ---------------------------------------------------------------------------
@@ -246,6 +294,35 @@ class TestIntegration:
         addon.request(flow)
         assert flow.response is None
         assert flow.request.headers["Authorization"] == "Bearer real-secret-value"
+
+
+# ---------------------------------------------------------------------------
+# DNS proxy
+# ---------------------------------------------------------------------------
+
+class TestDNSProxy:
+    def test_allowed_host_passes_through(self):
+        addon = SandcatAddon()
+        addon.network_rules = [{"action": "allow", "host": "*"}]
+        flow = _make_dns_flow("example.com")
+        addon.dns_request(flow)
+        assert flow.response is None
+
+    def test_denied_host_returns_refused(self):
+        addon = SandcatAddon()
+        addon.network_rules = [{"action": "deny", "host": "*"}]
+        flow = _make_dns_flow("example.com")
+        addon.dns_request(flow)
+        assert flow.response is not None
+        assert flow.response["response_code"] == 5
+
+    def test_empty_questions_returns_refused(self):
+        addon = SandcatAddon()
+        addon.network_rules = [{"action": "allow", "host": "*"}]
+        flow = _make_dns_flow(name=None)
+        addon.dns_request(flow)
+        assert flow.response is not None
+        assert flow.response["response_code"] == 5
 
 
 # ---------------------------------------------------------------------------
