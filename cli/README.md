@@ -15,12 +15,17 @@ configuration files and network settings. Optional volume mounts (Claude config,
 Options:
 - `--agent` - Agent type: `claude`, `copilot` (skips prompt)
 - `--ide` - IDE for devcontainer mode: `vscode`, `jetbrains`, `none` (skips prompt)
+- `--stacks` - Comma-separated development stacks to install: `node`, `python`, `java`, `rust`, `go`, `scala`, `ruby`, `dotnet` (skips prompt)
 - `--name` - Project name for Docker Compose (default: derived from directory name)
 - `--path` - Project directory (default: current directory)
 
+Selected stacks are installed via [mise](https://mise.jdx.dev/) in the container's Dockerfile. Versions default
+to LTS where available (e.g. Node.js LTS, Java LTS). Selecting `scala` automatically includes `java`. Stacks
+with a VS Code extension (e.g. `rust-analyzer`, `metals`) have it added to `devcontainer.json`.
+
 Fully non-interactive example:
 ```bash
-sandcat init --agent claude --ide vscode --name myproject --path /some/dir
+sandcat init --agent claude --ide vscode --stacks "python,node" --name myproject --path /some/dir
 ```
 
 #### `sandcat init devcontainer`
@@ -33,6 +38,7 @@ Options:
 - `--project-path` - Path to the project directory
 - `--agent` - The agent name (e.g., `claude`)
 - `--ide` - The IDE name (e.g., `vscode`, `jetbrains`, `none`) (optional)
+- `--stacks` - Space-separated development stacks (e.g., `"python java"`) (optional)
 - `--name` - Project name for Docker Compose (default: `{dir}-sandbox-devcontainer`)
 
 #### `sandcat init settings`

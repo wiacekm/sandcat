@@ -8,7 +8,6 @@
 	// hides the paths — the socket files in /tmp can still be discovered
 	// by scanning.  The post-start script deletes them as best-effort
 	// hardening.
-
 	"postStartCommand": "bash /workspaces/__PROJECT_NAME__/.devcontainer/sandcat/scripts/app-post-start.sh",
 	// VS Code forwards host credential sockets into containers by default.
 	// Clear them so container code cannot use host SSH keys, GPG signing,
@@ -23,6 +22,7 @@
 			"extensions": [
 				"anthropic.claude-code",
 				"github.vscode-pull-request-github"
+				// __STACK_EXTENSIONS__
 			],
 			"settings": {
 				// Prevent VS Code from copying host .gitconfig into the

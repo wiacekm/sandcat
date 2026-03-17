@@ -11,6 +11,8 @@ source "$SCT_LIBDIR/select.bash"
 source "$SCT_LIBDIR/constants.bash"
 # shellcheck source=../../lib/path.bash
 source "$SCT_LIBDIR/path.bash"
+# shellcheck source=../../lib/stacks.bash
+source "$SCT_LIBDIR/stacks.bash"
 
 # Initializes sandcat for a project.
 # Prompts for any options not provided via flags.
@@ -19,6 +21,7 @@ source "$SCT_LIBDIR/path.bash"
 #   --ide - IDE for devcontainer mode (vscode, jetbrains, none)
 #   --name - Project name for Docker Compose
 #   --path - Project directory path
+#   --stacks - Comma-separated list of development stacks (node,python,java,...)
 init() {
 	require yq
 
@@ -26,6 +29,8 @@ init() {
 	local project_path=""
 	local agent=""
 	local ide=""
+	local stacks_csv=""
+	local stacks_provided=false
 	local mode="devcontainer"
 
 	while [[ $# -gt 0 ]]
@@ -45,6 +50,11 @@ init() {
 			;;
 		--ide)
 			ide="$2"
+			shift 2
+			;;
+		--stacks)
+			stacks_csv="$2"
+			stacks_provided=true
 			shift 2
 			;;
 		*)
@@ -100,6 +110,29 @@ init() {
 		return 1
 	fi
 
+	# Stack selection
+	local stacks_resolved=""
+	if [[ "$stacks_provided" == "true" ]] && [[ -n "$stacks_csv" ]]; then
+		local stacks_arr=()
+		IFS=',' read -ra stacks_arr <<< "$stacks_csv"
+		validate_stacks "${stacks_arr[@]}" || { echo "$(validate_stacks "${stacks_arr[@]}")" | error; return 1; }
+		stacks_resolved=$(resolve_stacks "${stacks_arr[@]}")
+	elif [[ "$stacks_provided" != "true" ]]; then
+		local selected
+		selected=$(select_multiple "Select development stacks (comma-separated numbers, empty for none):" "${STACK_NAMES[@]}")
+		if [[ -n "$selected" ]]; then
+			local stacks_arr=()
+			read -ra stacks_arr <<< "$selected"
+			stacks_resolved=$(resolve_stacks "${stacks_arr[@]}")
+		fi
+	fi
+
+	if [[ -n "$stacks_resolved" ]]; then
+		echo "Development stacks: $stacks_resolved" | info
+		echo "Versions default to LTS where available. To change versions, edit .devcontainer/Dockerfile.app." | info
+		echo "VS Code extensions configured in .devcontainer/devcontainer.json." | info
+	fi
+
 	local services=("$agent")
 	if [[ "$ide" != "none" ]]
 	then
@@ -112,7 +145,8 @@ init() {
 		--project-path "$project_path" \
 		--agent "$agent" \
 		--ide "$ide" \
-		--name "$name"
+		--name "$name" \
+		--stacks "$stacks_resolved"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]

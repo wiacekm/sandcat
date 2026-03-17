@@ -41,3 +41,8 @@ teardown() {
 	run grep -c '__PROJECT_NAME__' "$DEVCONTAINER_JSON"
 	assert_output "0"
 }
+
+@test "devcontainer.json template contains __STACK_EXTENSIONS__ placeholder" {
+	run grep '__STACK_EXTENSIONS__' "$DEVCONTAINER_JSON"
+	assert_success
+}

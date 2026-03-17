@@ -86,13 +86,21 @@ export PATH="$PWD/sandcat/cli/bin:$PATH"
 sandcat init
 ```
 
-This prompts you to select the agent type and IDE (for devcontainer mode), then
-sets up the necessary configuration files and network settings. You can also
-pass flags to skip prompts:
+This prompts you to select the agent type, IDE (for devcontainer mode), and
+development stacks to install. You can also pass flags to skip prompts:
 
 ```bash
-sandcat init --agent claude --ide vscode
+sandcat init --agent claude --ide vscode --stacks "python,node"
 ```
+
+Available stacks: `node`, `python`, `java`, `rust`, `go`, `scala`, `ruby`,
+`dotnet`. Versions default to LTS where available (e.g. Node.js LTS, Java LTS).
+To change versions after init, edit the `mise use` lines in
+`.devcontainer/Dockerfile.app`.
+
+Selecting `scala` automatically includes `java` as a dependency. Stacks also
+install the corresponding VS Code extension (e.g. `rust-analyzer` for Rust,
+`metals` for Scala).
 
 Optional volume mounts (Claude config, shell customizations, dotfiles, .git,
 .idea, .vscode) are included as commented-out entries in the generated compose
@@ -121,18 +129,10 @@ bind-mounts forward host Claude Code customizations — remove any mount whose
 source does not exist on your host.
 
 **`Dockerfile.app`** — uses [mise](https://mise.jdx.dev/) to manage language
-toolchains. Look for the `CUSTOMIZE` marker and add `mise use -g` lines for your
-stack:
-
-| Stack | mise command | CA trust notes |
-|-------|-------------|----------------|
-| TypeScript / Node.js | `mise use -g node@lts` | Handled automatically by `app-init.sh` |
-| Python | `mise use -g python@3.13` | Uses system store — works out of the box |
-| Rust | `mise use -g rust@latest` | Use `rustls-tls-native-roots` in reqwest |
-| Java | `mise use -g java@21` | Handled automatically by `app-user-init.sh` |
-
-Some runtimes need extra configuration to trust the mitmproxy CA — see [TLS and
-CA certificates](#tls-and-ca-certificates).
+toolchains. Stacks selected during `sandcat init` are added as `RUN mise use -g`
+lines. You can edit the versions or add more stacks after init. Some runtimes
+need extra configuration to trust the mitmproxy CA — see [TLS and CA
+certificates](#tls-and-ca-certificates).
 
 **`devcontainer.json`** — includes VS Code hardening settings (credential socket
 cleanup, workspace trust, disabled local terminal). See [Hardening the VS Code

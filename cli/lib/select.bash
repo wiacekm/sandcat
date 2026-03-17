@@ -51,6 +51,58 @@ select_option() {
 	done
 }
 
+# Prompts the user to select zero or more options from a list.
+# Shows a numbered list; user types comma-separated numbers (e.g. "1,3,5").
+# Empty input selects nothing.
+# Args:
+#   $1 - The prompt text to display
+#   $@ - The options to present (remaining arguments)
+# Outputs:
+#   Space-separated list of selected options to stdout (empty if none selected)
+select_multiple() {
+	local prompt="$1"
+	shift
+	local options=("$@")
+	local i
+
+	for i in "${!options[@]}"; do
+		echo "  $((i+1))) ${options[$i]}" >&2
+	done
+
+	local reply
+	while true; do
+		read -rp "$prompt " reply >&2
+		if [[ -z $reply ]]; then
+			echo ""
+			return
+		fi
+
+		local result=""
+		local valid=true
+		local IFS=','
+		local num
+		for num in $reply; do
+			num=$(echo "$num" | tr -d ' ')
+			if [[ $num =~ ^[0-9]+$ ]] && (( num >= 1 && num <= ${#options[@]} )); then
+				if [[ -n "$result" ]]; then
+					result="$result ${options[$((num-1))]}"
+				else
+					result="${options[$((num-1))]}"
+				fi
+			else
+				echo "Invalid selection: $num" >&2
+				valid=false
+				break
+			fi
+		done
+
+		if [[ "$valid" == "true" ]]; then
+			echo "$result"
+			return
+		fi
+	done
+}
+
 # Prompts the user to enter a single line of text.
 # Args:
 #   $1 - The prompt text to display

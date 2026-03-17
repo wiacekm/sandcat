@@ -20,11 +20,8 @@ RUN curl https://mise.run | sh
 RUN echo 'export PATH="/home/vscode/.local/bin:/home/vscode/.local/share/mise/shims:$PATH"' >> /home/vscode/.profile
 ENV PATH="/home/vscode/.local/bin:/home/vscode/.local/share/mise/shims:$PATH"
 
-# CUSTOMIZE: add your language toolchain here, e.g.:
-#   RUN mise use -g node@lts
-#   RUN mise use -g python@3.13
-#   RUN mise use -g rust@latest
-#   RUN mise use -g java@21
+# Development stacks (managed by sandcat init --stacks):
+# END STACKS
 
 # If Java was installed above, bake JAVA_HOME and JAVA_TOOL_OPTIONS into
 # .bashrc so VS Code's env probe picks them up before the entrypoint runs.

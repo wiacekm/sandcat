@@ -19,7 +19,7 @@ teardown() {
 	# File should exist
 	[[ -f "$settings_file" ]]
 
-	assert_output --partial "Settings file created at:"
+	assert_output --partial "Settings file created at"
 }
 
 @test "settings creates parent directories" {

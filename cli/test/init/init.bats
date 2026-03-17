@@ -28,28 +28,58 @@ teardown() {
 }
 
 @test "init accepts valid --ide value" {
-	stub settings "$PROJECT_DIR/.sandcat/settings.json claude jetbrains : :"
-	stub devcontainer "--settings-file .sandcat/settings.json --project-path $PROJECT_DIR --agent claude --ide jetbrains --name test : :"
+	stub settings \
+		"$PROJECT_DIR/.sandcat/settings.json claude jetbrains : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide jetbrains --name test --stacks * : :"
 
-	run init --agent claude --ide jetbrains --name test --path "$PROJECT_DIR"
+	run init --agent claude --ide jetbrains --name test --path "$PROJECT_DIR" --stacks ""
+	assert_success
+}
+
+@test "init accepts valid --stacks value" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path $PROJECT_DIR --agent claude --ide vscode --name test --stacks 'python rust' : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "python,rust"
+	assert_success
+}
+
+@test "init rejects invalid --stacks value" {
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "python,invalid"
+	assert_failure
+	assert_output --partial "Invalid stack: invalid"
+}
+
+@test "init resolves scala dependency to java" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path $PROJECT_DIR --agent claude --ide vscode --name test --stacks 'java scala' : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "scala"
 	assert_success
 }
 
 @test "init interactive flow (devcontainer mode)" {
 	unset -f read_line
 	unset -f select_option
+	unset -f select_multiple
 
 	stub read_line "'Project name [empty for default]:' : echo ''"
 	stub select_option \
 		"'Select agent:' claude : echo claude" \
 		"'Select IDE:' vscode jetbrains none : echo vscode"
+	stub select_multiple \
+		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet : echo ''"
 
 	local expected_name
 	expected_name=$(basename "$PROJECT_DIR")-sandbox-devcontainer
 	local settings_file=".sandcat/settings.json"
 
 	stub settings "$PROJECT_DIR/$settings_file claude vscode : :"
-	stub devcontainer "--settings-file $settings_file --project-path $PROJECT_DIR --agent claude --ide vscode --name $expected_name : :"
+	stub devcontainer \
+		"--settings-file $settings_file --project-path $PROJECT_DIR --agent claude --ide vscode --name $expected_name --stacks '' : :"
 
 	run init --path "$PROJECT_DIR"
 

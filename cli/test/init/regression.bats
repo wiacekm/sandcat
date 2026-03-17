@@ -223,7 +223,7 @@ claude_agent_compose_file_has_expected_content() {
 		--agent "claude" \
 		--ide "jetbrains"
 	assert_success
-	assert_output --regexp ".*Devcontainer dir created at $PROJECT_DIR/.devcontainer"
+	assert_output --partial "Devcontainer dir created at .devcontainer"
 
 	# Use docker compose config to get the effective merged configuration
 	local effective_file="$BATS_TEST_TMPDIR/effective-compose.yml"

@@ -67,6 +67,45 @@ teardown() {
 	assert_output "false"
 }
 
+@test "select_multiple returns empty on empty input" {
+	run --separate-stderr select_multiple "Pick:" "alpha" "beta" "gamma" <<< ""
+	assert_success
+	assert_output ""
+}
+
+@test "select_multiple returns single selected item" {
+	run select_multiple "Pick:" "alpha" "beta" "gamma" <<< "2"
+	assert_success
+	assert_line "beta"
+}
+
+@test "select_multiple returns multiple selected items" {
+	run select_multiple "Pick:" "alpha" "beta" "gamma" <<< "1,3"
+	assert_success
+	assert_line "alpha gamma"
+}
+
+@test "select_multiple handles spaces in input" {
+	run select_multiple "Pick:" "alpha" "beta" "gamma" <<< "1, 3"
+	assert_success
+	assert_line "alpha gamma"
+}
+
+@test "select_multiple displays numbered menu" {
+	run select_multiple "Pick:" "alpha" "beta" <<< ""
+	assert_success
+	assert_output --partial "1) alpha"
+	assert_output --partial "2) beta"
+}
+
+@test "select_multiple retries on invalid then accepts valid input" {
+	input=$'99\n2\n'
+	run select_multiple "Pick:" "alpha" "beta" "gamma" <<< "$input"
+	assert_success
+	assert_output --partial "Invalid selection"
+	assert_line "beta"
+}
+
 @test "open_editor returns 1 when editor not found" {
 	unset VISUAL
 

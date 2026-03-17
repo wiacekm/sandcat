@@ -21,6 +21,7 @@ devcontainer() {
 	local agent=""
 	local ide=""
 	local name=""
+	local stacks=""
 
 	while [[ $# -gt 0 ]]
 	do
@@ -43,6 +44,10 @@ devcontainer() {
 			;;
 		--name)
 			name="$2"
+			shift 2
+			;;
+		--stacks)
+			stacks="$2"
 			shift 2
 			;;
 		*)
@@ -69,12 +74,23 @@ devcontainer() {
 	local project_name
 	project_name="${name:-$(derive_project_name "$project_path" "devcontainer")}"
 
+	# Customize Dockerfile and devcontainer.json with selected stacks
+	if [[ -n "$stacks" ]]; then
+		local stacks_arr=()
+		read -ra stacks_arr <<< "$stacks"
+		customize_dockerfile "$devcontainer_dir/Dockerfile.app" "${stacks_arr[@]}"
+		customize_devcontainer_extensions "$devcontainer_dir/devcontainer.json" "${stacks_arr[@]}"
+	else
+		customize_dockerfile "$devcontainer_dir/Dockerfile.app"
+		customize_devcontainer_extensions "$devcontainer_dir/devcontainer.json"
+	fi
+
 	customize_compose_file "$rel_settings_file" "$compose_file" "$agent" "$ide" "$project_name"
 	set_project_name "$compose_file" "$project_name"
 
 	customize_devcontainer_json "$devcontainer_dir/devcontainer.json" "$project_name"
 
-	echo "Devcontainer dir created at $devcontainer_dir" | info
+	echo "Devcontainer dir created at ${devcontainer_dir#"$project_path"/}" | info
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]
