@@ -73,6 +73,7 @@ validate_stacks() {
 			fi
 		done
 		if [[ "$found" != "true" ]]; then
+			local IFS=','
 			echo "Invalid stack: $stack (expected: ${STACK_NAMES[*]})"
 			return 1
 		fi
