@@ -183,6 +183,29 @@ class TestNetworkRules:
         ]
         assert addon._is_request_allowed(None, "example.com") is True
 
+    def test_host_matching_is_case_insensitive(self):
+        addon = SandcatAddon()
+        addon.network_rules = [
+            {"action": "deny", "host": "evil.com"},
+            {"action": "allow", "host": "*"},
+        ]
+        assert addon._is_request_allowed("GET", "Evil.COM") is False
+        assert addon._is_request_allowed("GET", "EVIL.COM") is False
+
+    def test_rule_host_pattern_case_insensitive(self):
+        addon = SandcatAddon()
+        addon.network_rules = [
+            {"action": "allow", "host": "*.GitHub.COM"},
+        ]
+        assert addon._is_request_allowed("GET", "api.github.com") is True
+
+    def test_dns_trailing_dot_stripped(self):
+        addon = SandcatAddon()
+        addon.network_rules = [
+            {"action": "allow", "host": "*.github.com"},
+        ]
+        assert addon._is_request_allowed(None, "api.github.com.") is True
+        assert addon._is_request_allowed("GET", "api.github.com.") is True
 
 
 # ---------------------------------------------------------------------------
@@ -323,6 +346,13 @@ class TestDNSProxy:
         addon.dns_request(flow)
         assert flow.response is not None
         assert flow.response["response_code"] == 5
+
+    def test_dns_trailing_dot_allowed(self):
+        addon = SandcatAddon()
+        addon.network_rules = [{"action": "allow", "host": "*.github.com"}]
+        flow = _make_dns_flow("api.github.com.")
+        addon.dns_request(flow)
+        assert flow.response is None
 
 
 # ---------------------------------------------------------------------------

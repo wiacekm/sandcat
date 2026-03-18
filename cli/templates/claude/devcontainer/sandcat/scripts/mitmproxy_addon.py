@@ -120,8 +120,9 @@ class SandcatAddon:
             f.write("\n".join(lines) + "\n")
 
     def _is_request_allowed(self, method: str | None, host: str) -> bool:
+        host = host.lower().rstrip(".")
         for rule in self.network_rules:
-            if not fnmatch(host, rule["host"]):
+            if not fnmatch(host, rule["host"].lower()):
                 continue
             rule_method = rule.get("method")
             if rule_method is not None and method is not None and rule_method.upper() != method.upper():
@@ -130,7 +131,7 @@ class SandcatAddon:
         return False # default deny
 
     def _substitute_secrets(self, flow: http.HTTPFlow):
-        host = flow.request.pretty_host
+        host = flow.request.pretty_host.lower()
 
         for name, entry in self.secrets.items():
             placeholder = entry["placeholder"]
@@ -150,7 +151,7 @@ class SandcatAddon:
                 continue
 
             # Leak detection: block if secret going to disallowed host
-            if not any(fnmatch(host, pattern) for pattern in allowed_hosts):
+            if not any(fnmatch(host, pattern.lower()) for pattern in allowed_hosts):
                 flow.response = http.Response.make(
                     403,
                     f"Blocked: secret {name!r} not allowed for host {host!r}\n".encode(),
