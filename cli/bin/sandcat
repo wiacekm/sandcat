@@ -46,10 +46,10 @@ Usage: ${BASH_SOURCE[0]} <$(IFS='|'; echo "${modules[*]}")> [command] [args...]
 To list available commands use: ${BASH_SOURCE[0]} <module> help
 "
 
-	if [[ $# -lt 1 ]]
+	if [[ $# -lt 1 ]] || [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]
 	then
 		echo "$usage" >&2
-		exit 1
+		if [[ $# -ge 1 ]]; then exit 0; else exit 1; fi
 	fi
 
 	local -r module="$1"
@@ -72,7 +72,7 @@ To list available commands use: ${BASH_SOURCE[0]} <module> help
 		exit 1
 	fi
 
-	if [[ "$command" == "help" ]]
+	if [[ "$command" == "help" ]] || [[ "$command" == "--help" ]] || [[ "$command" == "-h" ]]
 	then
 		echo "Commands in $module:" >&2
 		find "$SCT_LIBEXECDIR/$module" \
