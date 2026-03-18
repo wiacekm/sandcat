@@ -55,13 +55,14 @@ proxy() {
 
 	echo "Switching proxy to console mode..." | info
 	_proxy_switched=true
-	docker compose -f "$_proxy_compose_file" -f "$_proxy_override" up -d --force-recreate mitmproxy
-	docker compose -f "$_proxy_compose_file" up -d --force-recreate wg-client
 
-	echo "Press 'q' to exit." | info
-
+	# Run mitmproxy TUI in the foreground so the TTY is properly connected.
+	# --attach mitmproxy: only attach stdin/stdout to mitmproxy (not wg-client).
+	# --abort-on-container-exit: stop everything when the TUI exits (user presses 'q').
 	local console_exit=0
-	docker attach "$(docker compose -f "$_proxy_compose_file" ps -q mitmproxy)" || console_exit=$?
+	docker compose -f "$_proxy_compose_file" -f "$_proxy_override" \
+		up --force-recreate --attach mitmproxy --abort-on-container-exit \
+		mitmproxy wg-client || console_exit=$?
 
 	_proxy_restore
 	trap - EXIT
