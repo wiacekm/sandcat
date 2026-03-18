@@ -15,9 +15,12 @@ teardown() {
 	unstub_all
 }
 
-@test "proxy switches to console, then restores web mode" {
+@test "proxy switches to console, attaches, then restores web mode" {
 	stub docker \
-		"compose -f $COMPOSE_FILE -f * up --force-recreate --attach mitmproxy --abort-on-container-exit mitmproxy wg-client : :" \
+		"compose -f $COMPOSE_FILE -f * up -d --force-recreate mitmproxy : :" \
+		"compose -f $COMPOSE_FILE up -d --force-recreate wg-client : :" \
+		"compose -f $COMPOSE_FILE ps -q mitmproxy : echo container-id" \
+		"attach container-id : :" \
 		"compose -f $COMPOSE_FILE up -d --force-recreate mitmproxy : :" \
 		"compose -f $COMPOSE_FILE up -d --force-recreate wg-client : :"
 
@@ -32,7 +35,10 @@ teardown() {
 	local captured="$BATS_TEST_TMPDIR/captured-override"
 
 	stub docker \
-		"compose -f $COMPOSE_FILE -f * up --force-recreate --attach mitmproxy --abort-on-container-exit mitmproxy wg-client : cat \"\$5\" > '$captured'" \
+		"compose -f $COMPOSE_FILE -f * up -d --force-recreate mitmproxy : cat \"\$5\" > '$captured'" \
+		"compose -f $COMPOSE_FILE up -d --force-recreate wg-client : :" \
+		"compose -f $COMPOSE_FILE ps -q mitmproxy : echo container-id" \
+		"attach container-id : :" \
 		"compose -f $COMPOSE_FILE up -d --force-recreate mitmproxy : :" \
 		"compose -f $COMPOSE_FILE up -d --force-recreate wg-client : :"
 
@@ -44,9 +50,45 @@ teardown() {
 	assert_success
 }
 
+@test "proxy override includes COLUMNS and LINES env vars" {
+	local captured="$BATS_TEST_TMPDIR/captured-override"
+
+	stub docker \
+		"compose -f $COMPOSE_FILE -f * up -d --force-recreate mitmproxy : cat \"\$5\" > '$captured'" \
+		"compose -f $COMPOSE_FILE up -d --force-recreate wg-client : :" \
+		"compose -f $COMPOSE_FILE ps -q mitmproxy : echo container-id" \
+		"attach container-id : :" \
+		"compose -f $COMPOSE_FILE up -d --force-recreate mitmproxy : :" \
+		"compose -f $COMPOSE_FILE up -d --force-recreate wg-client : :"
+
+	cd "$BATS_TEST_TMPDIR"
+	run proxy
+	assert_success
+
+	run grep 'COLUMNS' "$captured"
+	assert_success
+	run grep 'LINES' "$captured"
+	assert_success
+}
+
+@test "proxy restores web mode when wg-client restart fails during switch" {
+	stub docker \
+		"compose -f $COMPOSE_FILE -f * up -d --force-recreate mitmproxy : :" \
+		"compose -f $COMPOSE_FILE up -d --force-recreate wg-client : exit 1" \
+		"compose -f $COMPOSE_FILE up -d --force-recreate mitmproxy : :" \
+		"compose -f $COMPOSE_FILE up -d --force-recreate wg-client : :"
+
+	cd "$BATS_TEST_TMPDIR"
+	run proxy
+	assert_failure
+}
+
 @test "proxy restores web mode and propagates error on console failure" {
 	stub docker \
-		"compose -f $COMPOSE_FILE -f * up --force-recreate --attach mitmproxy --abort-on-container-exit mitmproxy wg-client : exit 1" \
+		"compose -f $COMPOSE_FILE -f * up -d --force-recreate mitmproxy : :" \
+		"compose -f $COMPOSE_FILE up -d --force-recreate wg-client : :" \
+		"compose -f $COMPOSE_FILE ps -q mitmproxy : echo container-id" \
+		"attach container-id : exit 1" \
 		"compose -f $COMPOSE_FILE up -d --force-recreate mitmproxy : :" \
 		"compose -f $COMPOSE_FILE up -d --force-recreate wg-client : :"
 

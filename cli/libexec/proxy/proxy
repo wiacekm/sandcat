@@ -40,13 +40,23 @@ proxy() {
 	}
 	trap _proxy_restore EXIT
 
+	# Pass host terminal dimensions via env vars so mitmproxy TUI can
+	# initialize before docker attach connects the real terminal.
+	# Python's os.get_terminal_size() falls back to COLUMNS/LINES when
+	# the PTY reports 0x0 (detached container).
+	local cols lines
+	cols=$(tput cols 2>/dev/null || echo 120)
+	lines=$(tput lines 2>/dev/null || echo 40)
+
 	# Build a YAML override file with the command as a properly encoded list.
 	# Start with the base args, then append user args one at a time via yq
 	# to ensure correct YAML encoding of special characters.
-	yq -n -o yaml '
+	cols="$cols" lines="$lines" yq -n -o yaml '
 		.services.mitmproxy.command = ["mitmproxy", "--mode", "wireguard", "-s", "/scripts/mitmproxy_addon.py"] |
 		.services.mitmproxy.stdin_open = true |
-		.services.mitmproxy.tty = true
+		.services.mitmproxy.tty = true |
+		.services.mitmproxy.environment.COLUMNS = env(cols) |
+		.services.mitmproxy.environment.LINES = env(lines)
 	' > "$_proxy_override"
 	local arg
 	for arg in "$@"; do
@@ -55,14 +65,13 @@ proxy() {
 
 	echo "Switching proxy to console mode..." | info
 	_proxy_switched=true
+	docker compose -f "$_proxy_compose_file" -f "$_proxy_override" up -d --force-recreate mitmproxy
+	docker compose -f "$_proxy_compose_file" up -d --force-recreate wg-client
 
-	# Run mitmproxy TUI in the foreground so the TTY is properly connected.
-	# --attach mitmproxy: only attach stdin/stdout to mitmproxy (not wg-client).
-	# --abort-on-container-exit: stop everything when the TUI exits (user presses 'q').
+	echo "Press 'q' to exit." | info
+
 	local console_exit=0
-	docker compose -f "$_proxy_compose_file" -f "$_proxy_override" \
-		up --force-recreate --attach mitmproxy --abort-on-container-exit \
-		mitmproxy wg-client || console_exit=$?
+	docker attach "$(docker compose -f "$_proxy_compose_file" ps -q mitmproxy)" || console_exit=$?
 
 	_proxy_restore
 	trap - EXIT
