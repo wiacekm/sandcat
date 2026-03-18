@@ -88,5 +88,5 @@ fi
 
 # Claude Code is installed at build time (Dockerfile.app).
 # Background update so it doesn't block startup.
-(claude install 2>/dev/null &)
+(claude install >/dev/null 2>&1 &)
 
