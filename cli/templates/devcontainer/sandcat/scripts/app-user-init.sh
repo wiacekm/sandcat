@@ -86,6 +86,7 @@ if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
     echo '{"hasCompletedOnboarding":true}' > "$HOME/.claude.json"
 fi
 
-# Claude Code is installed at build time (Dockerfile.app). To update,
-# run 'claude update' manually inside the container.
+# Claude Code is installed at build time (Dockerfile.app).
+# Background update so it doesn't block startup.
+(claude update 2>/dev/null &)
 
