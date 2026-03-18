@@ -100,6 +100,9 @@ file (project or user) to apply the new configuration.
 Runs a command inside the agent container. If no command is specified, opens a shell. Example: `sandcat run` opens a
 shell, `sandcat run npm install` runs npm inside the container.
 
+Options:
+- `--build` — Rebuild images before running (e.g. after editing `Dockerfile.app`)
+
 ## Directory Structure
 
 Each module is contained in its own directory under `cli/libexec/`.
