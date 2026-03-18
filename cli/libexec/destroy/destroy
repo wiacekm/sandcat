@@ -32,20 +32,20 @@ destroy() {
 		;;
 	esac
 
-	echo "Stopping containers" | warning
+	echo "Stopping containers" | info
 	"$SCT_LIBEXECDIR/compose/compose" down --volumes
 
 	local project_dir="$repo_root/$SCT_PROJECT_DIR"
 	if [[ -d "$project_dir" ]]
 	then
-		echo "Removing $project_dir" | warning
+		echo "Removing $project_dir" | info
 		rm -rf "$project_dir"
 	fi
 
 	local devcontainer_dir="$repo_root/.devcontainer"
 	if [[ -d "$devcontainer_dir" ]]
 	then
-		echo "Removing $devcontainer_dir" | warning
+		echo "Removing $devcontainer_dir" | info
 		rm -rf "$devcontainer_dir"
 	fi
 }
