@@ -9,11 +9,11 @@ Requires `docker` (and `docker compose`) and [`yq`](https://github.com/mikefarah
 ### `sandcat init`
 
 Initializes sandcat for a project. Prompts for any options not provided via flags, then sets up the necessary
-configuration files and network settings. Optional volume mounts (Claude config, shell customizations, dotfiles, .git,
-.idea, .vscode) are included as commented-out entries in the generated compose file.
+configuration files and network settings. Optional volume mounts (Claude config, .git, .idea) are included as
+commented-out entries in the generated compose file (Claude config defaults to active for the Claude agent).
 
 Options:
-- `--agent` - Agent type: `claude`, `copilot` (skips prompt)
+- `--agent` - Agent type: `claude` (skips prompt)
 - `--ide` - IDE for devcontainer mode: `vscode`, `jetbrains`, `none` (skips prompt)
 - `--stacks` - Comma-separated development stacks to install: `node`, `python`, `java`, `rust`, `go`, `scala`, `ruby`, `dotnet` (skips prompt)
 - `--name` - Project name for Docker Compose (default: derived from directory name)
@@ -47,7 +47,6 @@ Creates a network settings file for the proxy.
 
 Arguments:
 - First argument: Path to the settings file
-- Remaining arguments: Service names to include (e.g., `claude`, `copilot`, `vscode`, `jetbrains`)
 
 ### `sandcat destroy`
 
@@ -68,7 +67,7 @@ Runs docker compose commands with the correct compose file automatically detecte
 Opens the Docker Compose file in your editor. If you save changes and containers are running, it will restart containers by default to apply the changes.
 
 Options:
-- `--no-restart` — Do not automatically restart containers after changes. When set (or when `SANDCAT_NO_RESTART=true`), a warning is shown instead with instructions to run `sandcat up -d` manually.
+- `--no-restart` — Do not automatically restart containers after changes. When set (or when `SANDCAT_NO_RESTART=true`), a warning is shown instead with instructions to run `sandcat compose up -d` manually.
 
 ### `sandcat edit project-settings`
 
@@ -134,7 +133,8 @@ cli/
 
 ### Configuration (set before running `sandcat init`)
 
-These override defaults during compose file generation. Optional volumes default to `false` (commented out).
+These override defaults during compose file generation. Optional volumes default to `false` (commented out),
+except `SANDCAT_MOUNT_CLAUDE_CONFIG` which defaults to `true` for the Claude agent.
 
 - `SANDCAT_MOUNT_CLAUDE_CONFIG` - `true` to mount host `~/.claude` config (Claude agent only)
 - `SANDCAT_MOUNT_GIT_READONLY` - `true` to mount `.git/` directory as read-only

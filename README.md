@@ -104,11 +104,11 @@ Selecting `scala` automatically includes `java` as a dependency. Stacks also
 install the corresponding VS Code extension (e.g. `rust-analyzer` for Rust,
 `metals` for Scala).
 
-Optional volume mounts (Claude config, shell customizations, dotfiles, .git,
-.idea) are included as commented-out entries in the generated compose file.
-Uncomment them as needed, or set `SANDCAT_*` environment variables for scripted
-usage. See the [CLI README](cli/README.md) for the full list of flags and
-environment variables.
+Optional volume mounts (Claude config, .git, .idea) are configurable in the
+generated compose file. Claude config mounts are active by default for the
+Claude agent; .git and .idea are commented out. Set `SANDCAT_*` environment
+variables for scripted usage. See the [CLI README](cli/README.md) for the full
+list of flags and environment variables.
 
 ### 3. Start the sandbox
 
@@ -239,6 +239,7 @@ You can use the CLI helper commands:
 sandcat edit project-settings   # project network rules (.sandcat/settings.json)
 sandcat edit user-settings      # API keys, git identity (~/.config/sandcat/settings.json)
 sandcat edit dockerfile         # container Dockerfile (.devcontainer/Dockerfile.app)
+sandcat edit compose            # Docker Compose file (.devcontainer/compose-all.yml)
 ```
 
 After editing a settings file, restart the proxy to apply changes:
@@ -654,7 +655,7 @@ cd cli/templates/claude/devcontainer/sandcat/scripts && pytest test_mitmproxy_ad
 **BATS tests** (CLI):
 
 ```sh
-cd cli && ./test/run.sh
+cd cli && ./run-tests.bash
 ```
 
 ## Inspiration
