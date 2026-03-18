@@ -86,8 +86,6 @@ if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
     echo '{"hasCompletedOnboarding":true}' > "$HOME/.claude.json"
 fi
 
-# Update Claude Code to the latest version.
-# Use 'install' instead of 'update' to also fix the install method config
-# (the curl|bash installer doesn't set it, causing a warning on 'update').
-claude install || true
+# Claude Code is installed at build time (Dockerfile.app). To update,
+# run 'claude update' manually inside the container.
 
