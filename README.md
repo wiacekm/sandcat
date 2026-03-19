@@ -118,6 +118,9 @@ list of flags and environment variables.
 # Open a shell in the agent container
 sandcat run
 
+# Rebuild images first (after editing Dockerfile.app or scripts)
+sandcat run --build
+
 # Start your agent cli (e.g. claude). Because you're in a sandbox, you can use yolo mode!
 # (an alias for --dangerously-skip-permissions)
 claude-yolo
