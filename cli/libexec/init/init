@@ -279,12 +279,14 @@ init() {
 	echo "Next steps:" | info
 	echo "  Edit ~/.config/sandcat/settings.json to add your API keys:" | info
 	if [[ "$onepassword" == "true" ]]; then
-		echo "    Use 1Password references: \"op\": \"op://vault/item/field\"" | info
-		echo "    Or plain values:          \"value\": \"sk-ant-...\"" | info
+		echo "    ANTHROPIC_API_KEY  \"op\": \"op://vault/Anthropic API Key/credential\"" | info
+		echo "    GITHUB_TOKEN       \"op\": \"op://vault/GitHub Token/credential\"" | info
+		echo "    (adjust vault/item names to match your 1Password setup," | info
+		echo "     or use plain values with \"value\": \"sk-ant-...\")" | info
 		echo "" >&2
 		echo "  1Password setup:" | info
-		echo "    1. Create a service account at https://my.1password.com/developer-tools/infrastructure-secrets/serviceaccount" | info
-		echo "    2. Grant it read access to vaults containing your secrets" | info
+		echo "    1. Create a service account at https://my.1password.com/developer-tools/infrastructure-secrets/serviceaccount/" | info
+		echo "    2. Grant it read access to the vault(s) containing your secrets" | info
 		echo "    3. Add the token to ~/.config/sandcat/settings.json:" | info
 		echo "       \"op_service_account_token\": \"ops_...\"" | info
 	else
