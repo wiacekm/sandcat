@@ -3,7 +3,7 @@ FROM mcr.microsoft.com/devcontainers/base:debian
 # gosu is used by the entrypoint to drop privileges.
 # ca-certificates, curl, git are already in the devcontainers base image.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gh gosu jq vim \
+    && apt-get install -y --no-install-recommends gh gosu jq tmux vim \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --chmod=755 sandcat/scripts/app-init.sh /usr/local/bin/app-init.sh
