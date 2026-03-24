@@ -4,7 +4,12 @@ import json
 import os
 import sys
 import types
+from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+# Allow importing mitmproxy_addon from the templates directory.
+_SCRIPTS_DIR = str(Path(__file__).resolve().parents[2] / "templates" / "devcontainer" / "sandcat" / "scripts")
+sys.path.insert(0, _SCRIPTS_DIR)
 
 import pytest
 

@@ -758,7 +758,7 @@ certificates](#tls-and-ca-certificates) for runtime-specific configuration.
 **Python tests** (mitmproxy addon):
 
 ```sh
-cd cli/templates/devcontainer/sandcat/scripts && pytest test_mitmproxy_addon.py -v
+pytest cli/test/mitmproxy/test_mitmproxy_addon.py -v
 ```
 
 **BATS tests** (CLI):
