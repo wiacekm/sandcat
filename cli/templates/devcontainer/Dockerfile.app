@@ -1,9 +1,17 @@
 FROM mcr.microsoft.com/devcontainers/base:debian
 
-# gosu is used by the entrypoint to drop privileges.
 # ca-certificates, curl, git are already in the devcontainers base image.
+# fd-find:  fast file finder (aliased to fd below)
+# fzf:      fuzzy finder for files and command history
+# gh:       GitHub CLI
+# gosu:     drops privileges in the entrypoint
+# jq:       JSON processor
+# ripgrep:  fast recursive grep (rg)
+# tmux:     terminal multiplexer
+# vim:      text editor
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gh gosu jq tmux vim \
+    && apt-get install -y --no-install-recommends fd-find fzf gh gosu jq ripgrep tmux vim \
+    && ln -s $(which fdfind) /usr/local/bin/fd \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --chmod=755 sandcat/scripts/app-init.sh /usr/local/bin/app-init.sh
