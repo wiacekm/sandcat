@@ -11,8 +11,8 @@ set -e
 CA_CERT="/mitmproxy-config/mitmproxy-ca-cert.pem"
 
 # The CA cert is guaranteed to exist: app depends_on wg-client (healthy),
-# which depends_on mitmproxy (healthy), whose healthcheck requires the
-# WireGuard config — generated after the CA.
+# which depends_on mitmproxy (healthy), whose healthcheck requires both
+# wireguard.conf and mitmproxy-ca-cert.pem.
 if [ ! -f "$CA_CERT" ]; then
     echo "mitmproxy CA cert not found at $CA_CERT" >&2
     exit 1
