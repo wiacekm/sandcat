@@ -65,10 +65,10 @@ assert_common_volumes() {
 		)
 	" "$compose_file"
 
-	# Volume: app-home
+	# Volume: agent-home
 	yq -e '
 		.services.agent.volumes[] |
-		select(.type == "volume" and .source == "app-home" and .target == "/home/vscode")
+		select(.type == "volume" and .source == "agent-home" and .target == "/home/vscode")
 	' "$compose_file"
 
 	# Volume: mitmproxy-config (read-only)
@@ -195,7 +195,7 @@ claude_agent_compose_file_has_expected_content() {
 	assert_claude_environment_vars "$compose_file"
 	assert_common_volumes "$compose_file"
 
-	assert_named_volumes "$compose_file" "app-home" "mitmproxy-config"
+	assert_named_volumes "$compose_file" "agent-home" "mitmproxy-config"
 	assert_claude_volumes "$compose_file"
 	assert_customization_volumes "$compose_file"
 }

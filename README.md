@@ -467,16 +467,16 @@ place.
 
 ```mermaid
 flowchart LR
-    app["<b>app</b><br/><i>no NET_ADMIN</i><br/>your code runs here"]
+    agent["<b>agent</b><br/><i>no NET_ADMIN</i><br/>your code runs here"]
     wg["<b>wg-client</b><br/><i>NET_ADMIN</i><br/>WireGuard + iptables"]
     mitm["<b>mitmproxy</b><br/><i>mitmweb</i><br/>network rules &amp;<br/>secret substitution"]
     inet(("internet"))
 
-    app -- "network_mode:<br/>shares net namespace" --- wg
+    agent -- "network_mode:<br/>shares net namespace" --- wg
     wg -- "WireGuard<br/>tunnel" --> mitm
     mitm -- "allowed<br/>requests" --> inet
 
-    style app fill:#e8f4fd,stroke:#4a90d9
+    style agent fill:#e8f4fd,stroke:#4a90d9
     style wg fill:#fdf2e8,stroke:#d9904a
     style mitm fill:#e8fde8,stroke:#4ad94a
 ```
@@ -503,7 +503,7 @@ from the host:
 flowchart TB
     subgraph volumes["Shared volumes"]
         mc["<b>mitmproxy-config</b><br/><i>wireguard.conf</i><br/><i>mitmproxy-ca-cert.pem</i><br/><i>sandcat.env</i>"]
-        ah["<b>app-home</b><br/><i>/home/vscode</i><br/>persists Claude Code state,<br/>shell history across rebuilds"]
+        ah["<b>agent-home</b><br/><i>/home/vscode</i><br/>persists Claude Code state,<br/>shell history across rebuilds"]
     end
 
     subgraph host["Host bind-mounts (read-only)"]
@@ -514,11 +514,11 @@ flowchart TB
 
     mitm["mitmproxy"] -- "read-write" --> mc
     wg["wg-client"] -- "read-only" --> mc
-    app["app"] -- "read-only" --> mc
-    app -- "read-write" --> ah
+    agent["agent"] -- "read-only" --> mc
+    agent -- "read-write" --> ah
     settings -. "bind-mount" .-> mitm
     projsettings -. "bind-mount" .-> mitm
-    claude -. "bind-mount" .-> app
+    claude -. "bind-mount" .-> agent
 
     style mc fill:#f0e8fd,stroke:#904ad9
     style ah fill:#f0e8fd,stroke:#904ad9
@@ -530,7 +530,7 @@ flowchart TB
 - **`mitmproxy-config`** is the key shared volume. Mitmproxy writes to it
   (WireGuard keys, CA cert, `sandcat.env` with env vars and secret
   placeholders); all other containers mount it read-only.
-- **`app-home`** persists the vscode user's home directory across container
+- **`agent-home`** persists the vscode user's home directory across container
   rebuilds (Claude Code auth, shell history, git config).
 - **Settings files** are bind-mounted from the host into mitmproxy only — app
   containers never see real secrets. The user settings file
@@ -548,7 +548,7 @@ The containers start in dependency order. Each step writes data to the shared
 sequenceDiagram
     participant M as mitmproxy
     participant W as wg-client
-    participant A as app
+    participant A as agent
 
     Note over M: starts first (no dependencies)
     M->>M: Start WireGuard server

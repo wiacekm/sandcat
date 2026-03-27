@@ -32,7 +32,7 @@ _image_newer_than_volume() {
 	[[ "$img_norm" > "$vol_norm" ]]
 }
 
-# Warns if the app-home volume predates the current agent image.
+# Warns if the agent-home volume predates the current agent image.
 # After an image rebuild the named volume still holds old contents,
 # so packages installed during the build (mise toolchains, Claude Code,
 # etc.) are hidden by the stale volume overlay.
@@ -47,7 +47,7 @@ warn_stale_home_volume() {
 	project_name=$(yq -r '.name // ""' "$compose_file") || return 0
 	[[ -n "$project_name" ]] || return 0
 
-	local volume_name="${project_name}_app-home"
+	local volume_name="${project_name}_agent-home"
 	local image_name="${project_name}-agent"
 
 	# No volume yet (first run) — nothing to warn about.
@@ -58,7 +58,7 @@ warn_stale_home_volume() {
 	image_time=$(docker image inspect --format '{{.Created}}' "$image_name" 2>/dev/null) || return 0
 
 	if _image_newer_than_volume "$volume_time" "$image_time"; then
-		echo "The agent image was rebuilt since the app-home volume was created." | warning
+		echo "The agent image was rebuilt since the agent-home volume was created." | warning
 		echo "Packages installed during the build may not be visible." | warning
 		echo "To fix, stop containers and remove the volume:" | warning
 		echo "  sandcat compose down && docker volume rm $volume_name" | warning
