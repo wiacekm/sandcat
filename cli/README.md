@@ -1,4 +1,4 @@
-# Agent Sandbox CLI
+# Sandcat CLI
 
 Command-line tool for managing sandcat configurations and Docker Compose setups.
 
