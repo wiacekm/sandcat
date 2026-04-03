@@ -183,7 +183,7 @@ init() {
 
 	# Optional features (tui, 1password)
 	if [[ "$features_provided" != "true" ]]; then
-		local available_features=(tui 1password)
+		local available_features=("tui (mitmproxy console instead of web UI)" 1password)
 		local feature_defaults=()
 
 		# Pre-select 1password if user already has a non-empty op token configured
@@ -204,7 +204,7 @@ init() {
 		if [[ -n "$selected_features" ]]; then
 			for f in $selected_features; do
 				case "$f" in
-					tui) proxy_mode="tui" ;;
+					tui*) proxy_mode="tui" ;;
 					1password) onepassword="true" ;;
 				esac
 			done
