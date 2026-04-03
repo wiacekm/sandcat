@@ -69,7 +69,7 @@ teardown() {
 @test "customize_dockerfile handles ampersands in mise commands (scala)" {
 	customize_dockerfile "$DOCKERFILE" scala
 
-	run grep "mise use -g scala@latest && mise use -g sbt@latest" "$DOCKERFILE"
+	run grep "mise use -g scala@latest && mise use -g sbt@latest && mise use -g scala-cli@latest" "$DOCKERFILE"
 	assert_success
 
 	# Verify the END STACKS marker is not corrupted

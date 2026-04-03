@@ -12,7 +12,7 @@ stack_mise_cmd() {
 		java)   echo "mise use -g java@lts" ;;
 		rust)   echo "mise use -g rust@latest" ;;
 		go)     echo "mise use -g go@latest" ;;
-		scala)  echo "mise use -g scala@latest && mise use -g sbt@latest" ;;
+		scala)  echo "mise use -g scala@latest && mise use -g sbt@latest && mise use -g scala-cli@latest" ;;
 		ruby)   echo "mise use -g ruby@latest" ;;
 		dotnet) echo "mise use -g dotnet@latest" ;;
 	esac
