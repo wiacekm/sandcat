@@ -27,6 +27,9 @@ This repository contains:
 Sandcat can be used as a devcontainer setup, or standalone, providing a shell
 for secure development.
 
+> Sandcat is part of [Visdom](https://virtuslab.com/services/visdom),
+> VirtusLab's AI-driven software delivery infrastructure.
+
 ## Quick start
 
 ### 1. Install sandcat CLI
