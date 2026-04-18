@@ -39,7 +39,17 @@ teardown() {
 	stub devcontainer \
 		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide jetbrains --name test --stacks * --proxy web : :"
 
-	run init --agent claude --ide jetbrains --name test --path "$PROJECT_DIR" --stacks "" --proxy web
+	run init --agent claude --ide jetbrains --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features ""
+	assert_success
+}
+
+@test "init accepts cursor as valid --agent value" {
+	stub settings \
+		"$PROJECT_DIR/.sandcat/settings.json cursor vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent cursor --ide vscode --name test --stacks * --proxy web : :"
+
+	run init --agent cursor --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features ""
 	assert_success
 }
 
@@ -48,12 +58,12 @@ teardown() {
 	stub devcontainer \
 		"--settings-file .sandcat/settings.json --project-path $PROJECT_DIR --agent claude --ide vscode --name test --stacks 'python rust' --proxy web : :"
 
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "python,rust" --proxy web
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "python,rust" --proxy web --features ""
 	assert_success
 }
 
 @test "init rejects invalid --stacks value" {
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "python,invalid"
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "python,invalid" --features ""
 	assert_failure
 	assert_output --partial "Invalid stack: invalid"
 }
@@ -63,7 +73,7 @@ teardown() {
 	stub devcontainer \
 		"--settings-file .sandcat/settings.json --project-path $PROJECT_DIR --agent claude --ide vscode --name test --stacks 'java scala' --proxy web : :"
 
-	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "scala" --proxy web
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "scala" --proxy web --features ""
 	assert_success
 }
 
@@ -78,7 +88,7 @@ teardown() {
 
 	stub read_line "* : echo ''"
 	stub select_option \
-		"'Select agent:' claude : echo claude" \
+		"'Select agent:' claude cursor : echo claude" \
 		"'Select IDE:' vscode jetbrains none : echo vscode"
 	stub select_multiple \
 		"'Select optional features (comma-separated numbers, enter for defaults):' 'tui (mitmproxy console instead of web UI)' 1password -- 1password : echo 1password" \
@@ -105,7 +115,7 @@ teardown() {
 
 	stub read_line "* : echo ''"
 	stub select_option \
-		"'Select agent:' claude : echo claude" \
+		"'Select agent:' claude cursor : echo claude" \
 		"'Select IDE:' vscode jetbrains none : echo vscode"
 	stub select_multiple \
 		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 1password -- : echo ''" \

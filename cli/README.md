@@ -9,11 +9,11 @@ Requires `docker` (and `docker compose`) and [`yq`](https://github.com/mikefarah
 ### `sandcat init`
 
 Initializes sandcat for a project. Prompts for any options not provided via flags, then sets up the necessary
-configuration files and network settings. Optional volume mounts (Claude config, .git, .idea) are included as
-commented-out entries in the generated compose file (Claude config defaults to active for the Claude agent).
+configuration files and network settings. Optional volume mounts (agent config, .git, .idea) are included as
+commented-out entries in the generated compose file (agent config defaults to active for the selected agent).
 
 Options:
-- `--agent` - Agent type: `claude` (skips prompt)
+- `--agent` - Agent type: `claude`, `cursor` (skips prompt)
 - `--ide` - IDE for devcontainer mode: `vscode`, `jetbrains`, `none` (skips prompt)
 - `--stacks` - Comma-separated development stacks to install: `node`, `python`, `java`, `rust`, `go`, `scala`, `ruby`, `dotnet` (skips prompt)
 - `--proxy` - Proxy UI mode: `web` (default, mitmweb browser UI) or `tui` (mitmproxy console, use with `sandcat proxy` to attach)
@@ -30,9 +30,19 @@ Fully non-interactive examples:
 ```bash
 sandcat init --agent claude --ide vscode --stacks "python,node" --name myproject --path /some/dir
 
+# Cursor CLI provider
+sandcat init --agent cursor --ide vscode --stacks "python,node" --name myproject --path /some/dir
+
 # With 1Password integration
 sandcat init --agent claude --ide vscode --features "1password" --name myproject
 ```
+
+Note: Cursor agent support currently uses compatibility defaults for auth/network
+settings while provider-specific hardening is being expanded.
+Use `CURSOR_API_KEY` for Cursor authentication.
+Set `env.CURSOR_USE_HTTP1_FOR_AGENT` in `~/.config/sandcat/settings.json` to
+control Cursor CLI's `.network.useHttp1ForAgent` (defaults to `"true"` in the
+Cursor user-settings template).
 
 #### `sandcat init devcontainer`
 
@@ -42,7 +52,7 @@ compose-all.yml.
 Options:
 - `--settings-file` - Path to the settings file (relative to project directory)
 - `--project-path` - Path to the project directory
-- `--agent` - The agent name (e.g., `claude`)
+- `--agent` - The agent name (e.g., `claude`, `cursor`)
 - `--ide` - The IDE name (e.g., `vscode`, `jetbrains`, `none`) (optional)
 - `--stacks` - Space-separated development stacks (e.g., `"python java"`) (optional)
 - `--name` - Project name for Docker Compose (default: `{dir}-sandbox`)
@@ -143,8 +153,9 @@ cli/
 ### Configuration (set before running `sandcat init`)
 
 These override defaults during compose file generation. Optional volumes default to `false` (commented out),
-except `SANDCAT_MOUNT_CLAUDE_CONFIG` which defaults to `true` for the Claude agent.
+except provider config mounts, which default to `true` for the selected agent.
 
 - `SANDCAT_MOUNT_CLAUDE_CONFIG` - `true` to mount host `~/.claude` config (Claude agent only)
+- `SANDCAT_MOUNT_CURSOR_CONFIG` - `true` to mount host `~/.cursor` config (Cursor agent only)
 - `SANDCAT_MOUNT_GIT_READONLY` - `true` to mount `.git/` directory as read-only
 - `SANDCAT_MOUNT_IDEA_READONLY` - `true` to mount `.idea/` directory as read-only (JetBrains)

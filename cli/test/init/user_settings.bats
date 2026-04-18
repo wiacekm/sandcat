@@ -33,10 +33,10 @@ teardown() {
 
 	local settings="$HOME/.config/sandcat/settings.json"
 	run yq -r '.env.GIT_USER_NAME' "$settings"
-	assert_output "Test User"
+	assert_output --partial "Test User"
 
 	run yq -r '.env.GIT_USER_EMAIL' "$settings"
-	assert_output "test@example.com"
+	assert_output --partial "test@example.com"
 }
 
 @test "create_user_settings falls back to placeholders when git config missing" {
@@ -48,10 +48,10 @@ teardown() {
 
 	local settings="$HOME/.config/sandcat/settings.json"
 	run yq -r '.env.GIT_USER_NAME' "$settings"
-	assert_output "Your Name"
+	assert_output --partial "Your Name"
 
 	run yq -r '.env.GIT_USER_EMAIL' "$settings"
-	assert_output "you@example.com"
+	assert_output --partial "you@example.com"
 }
 
 @test "create_user_settings includes ANTHROPIC_API_KEY secret" {
@@ -63,7 +63,7 @@ teardown() {
 
 	local settings="$HOME/.config/sandcat/settings.json"
 	run yq -r '.secrets.ANTHROPIC_API_KEY.hosts[0]' "$settings"
-	assert_output "api.anthropic.com"
+	assert_output --partial "api.anthropic.com"
 }
 
 @test "create_user_settings includes GITHUB_TOKEN secret" {
@@ -75,7 +75,42 @@ teardown() {
 
 	local settings="$HOME/.config/sandcat/settings.json"
 	run yq -r '.secrets.GITHUB_TOKEN.hosts[0]' "$settings"
-	assert_output "github.com"
+	assert_output --partial "github.com"
+}
+
+@test "create_user_settings includes CURSOR_API_KEY secret" {
+	stub git \
+		"config --global user.name : echo ''" \
+		"config --global user.email : echo ''"
+
+	create_user_settings cursor
+
+	local settings="$HOME/.config/sandcat/settings.json"
+	run yq -r '.secrets.CURSOR_API_KEY.hosts[0]' "$settings"
+	assert_output --partial "api.cursor.sh"
+}
+
+@test "create_user_settings for cursor enables HTTP/1 fallback env" {
+	stub git \
+		"config --global user.name : echo ''" \
+		"config --global user.email : echo ''"
+
+	create_user_settings cursor
+
+	local settings="$HOME/.config/sandcat/settings.json"
+	run yq -r '.env.CURSOR_USE_HTTP1_FOR_AGENT' "$settings"
+	assert_output --partial "true"
+}
+
+@test "create_user_settings for cursor does not include ANTHROPIC_API_KEY" {
+	stub git \
+		"config --global user.name : echo ''" \
+		"config --global user.email : echo ''"
+
+	create_user_settings cursor
+
+	local settings="$HOME/.config/sandcat/settings.json"
+	yq -e '.secrets | has("ANTHROPIC_API_KEY") | not' "$settings"
 }
 
 @test "create_user_settings includes network rules" {
@@ -91,6 +126,18 @@ teardown() {
 	yq -e '.network[] | select(.host == "*.claude.com")' "$settings"
 }
 
+@test "create_user_settings for cursor includes cursor network rules" {
+	stub git \
+		"config --global user.name : echo ''" \
+		"config --global user.email : echo ''"
+
+	create_user_settings cursor
+
+	local settings="$HOME/.config/sandcat/settings.json"
+	yq -e '.network[] | select(.host == "*.cursor.sh")' "$settings"
+	yq -e '.network[] | select(.host == "*.cursor.com")' "$settings"
+}
+
 @test "create_user_settings skips when file already exists" {
 	mkdir -p "$HOME/.config/sandcat"
 	echo '{"existing": true}' > "$HOME/.config/sandcat/settings.json"
@@ -98,5 +145,34 @@ teardown() {
 	create_user_settings
 
 	run yq '.existing' "$HOME/.config/sandcat/settings.json"
-	assert_output "true"
+	assert_output --partial "true"
+}
+
+@test "ensure_cursor_user_settings_defaults backfills missing cursor env and hosts" {
+	mkdir -p "$HOME/.config/sandcat"
+	cat > "$HOME/.config/sandcat/settings.json" <<'EOF'
+{
+  "env": {
+    "GIT_USER_NAME": "Test"
+  },
+  "secrets": {
+    "CURSOR_API_KEY": {
+      "value": "existing-key",
+      "hosts": ["api.cursor.sh"]
+    }
+  }
+}
+EOF
+
+	ensure_cursor_user_settings_defaults
+
+	local settings="$HOME/.config/sandcat/settings.json"
+	run yq -r '.env.CURSOR_USE_HTTP1_FOR_AGENT' "$settings"
+	assert_output --partial "true"
+	run yq -r '.secrets.CURSOR_API_KEY.value' "$settings"
+	assert_output --partial "existing-key"
+	yq -e '.secrets.CURSOR_API_KEY.hosts[] | select(. == "api.cursor.sh")' "$settings"
+	yq -e '.secrets.CURSOR_API_KEY.hosts[] | select(. == "api2.cursor.sh")' "$settings"
+	yq -e '.secrets.CURSOR_API_KEY.hosts[] | select(. == "*.cursor.sh")' "$settings"
+	yq -e '.secrets.CURSOR_API_KEY.hosts[] | select(. == "*.cursor.com")' "$settings"
 }

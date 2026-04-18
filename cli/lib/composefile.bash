@@ -6,11 +6,14 @@ source "$SCT_LIBDIR/require.bash"
 source "$SCT_LIBDIR/path.bash"
 # shellcheck source=constants.bash
 source "$SCT_LIBDIR/constants.bash"
+# shellcheck source=agents.bash
+source "$SCT_LIBDIR/agents.bash"
 
 # Customizes a Docker Compose file with settings and optional user configurations.
 # Optional volumes are added as commented-out entries by default. Set environment
 # variables to "true" before calling this function to add them as active mounts:
 #   - SANDCAT_MOUNT_CLAUDE_CONFIG: "true" to mount host Claude config (~/.claude)
+#   - SANDCAT_MOUNT_CURSOR_CONFIG: "true" to mount host Cursor config (~/.cursor)
 #   - SANDCAT_MOUNT_GIT_READONLY: "true" to mount .git directory as read-only
 #   - SANDCAT_MOUNT_IDEA_READONLY: "true" to mount .idea directory as read-only
 # Args:
@@ -43,10 +46,20 @@ customize_compose_file() {
 
 	add_settings_volume "$compose_file" "$settings_file"
 
-	if [[ $agent == "claude" ]]
-	then
-		add_claude_config_volumes "$compose_file" "${SANDCAT_MOUNT_CLAUDE_CONFIG:=true}"
-	fi
+	case "$agent" in
+		claude)
+			add_claude_config_volumes "$compose_file" "${SANDCAT_MOUNT_CLAUDE_CONFIG:=true}"
+			;;
+		cursor)
+			add_cursor_config_volumes "$compose_file" "${SANDCAT_MOUNT_CURSOR_CONFIG:=true}"
+			if [[ "${SANDCAT_CURSOR_TLS_PASSTHROUGH:-false}" == "true" ]]; then
+				local proxy_compose="$compose_dir/sandcat/compose-proxy.yml"
+				if [[ -f "$proxy_compose" ]]; then
+					add_mitm_ignore_hosts_cursor_api "$proxy_compose"
+				fi
+			fi
+			;;
+	esac
 
 	add_git_readonly_volume "$compose_file" "${SANDCAT_MOUNT_GIT_READONLY:=false}"
 	add_idea_readonly_volume "$compose_file" "${SANDCAT_MOUNT_IDEA_READONLY:-false}"
@@ -61,6 +74,24 @@ customize_compose_file() {
 	# When a blank line is followed by an indented line, strip the blank line
 	# via substitution to keep the indented line intact.
 	sed '/^$/{ N; /^\n[[:space:]]/{ s/^\n//; }; }' "$compose_file" > "$compose_file.tmp" && mv "$compose_file.tmp" "$compose_file"
+}
+
+# Appends mitmproxy --ignore-hosts so TLS to Cursor API hosts is not decrypted
+# (passthrough). Enabled by default because Cursor CLI uses native TLS with
+# cert pinning that rejects the mitmproxy CA. The real API key is injected
+# client-side from sandcat-secrets.json instead of via MITM substitution.
+# Set SANDCAT_CURSOR_TLS_PASSTHROUGH=false to attempt MITM (experimental).
+# Args:
+#   $1 - Path to sandcat/compose-proxy.yml
+add_mitm_ignore_hosts_cursor_api() {
+	local proxy_compose=$1
+
+	require yq
+
+	local pattern='^(.+\.)?cursor\.(sh|com):443$$'
+	SANDCAT_CURSOR_IGNORE_HOSTS="$pattern" yq -i \
+		'.services.mitmproxy.command = (.services.mitmproxy.command | tostring) + " --ignore-hosts '\''" + strenv(SANDCAT_CURSOR_IGNORE_HOSTS) + "'\''"' \
+		"$proxy_compose"
 }
 
 # Enables 1Password integration in the mitmproxy service.
@@ -102,7 +133,7 @@ set_project_name() {
 	local compose_file=$1
 	local project_name=$2
 
-	project_name="$project_name" yq -i '. = {"name": env(project_name)} * .' "$compose_file"
+	project_name="$project_name" yq -i '. = {"name": strenv(project_name)} * .' "$compose_file"
 }
 
 # Adds settings volume mount to the proxy service.
@@ -118,7 +149,7 @@ add_settings_volume() {
 	settings_dir=$(dirname "$settings_file")
 
 	settings_dir="$settings_dir" yq -i \
-		'.services.mitmproxy.volumes += [env(settings_dir) + ":/config/project:ro"]' "$compose_file"
+		'.services.mitmproxy.volumes += [strenv(settings_dir) + ":/config/project:ro"]' "$compose_file"
 
 	add_foot_comment "$compose_file" ".services.mitmproxy.volumes" \
 		'Project-level settings (.sandcat/ directory). If the directory does
@@ -179,7 +210,7 @@ add_volume_entry() {
 	if [[ $active == "true" ]]
 	then
 		volume_entry="$volume_entry" yq -i \
-			'.services.agent.volumes += [env(volume_entry)]' "$compose_file"
+			'.services.agent.volumes += [strenv(volume_entry)]' "$compose_file"
 		if [[ -n $comment ]]
 		then
 			comment="$comment" yq -i \
@@ -209,6 +240,20 @@ add_claude_config_volumes() {
 	add_volume_entry "$compose_file" '${HOME}/.claude/agents:/home/vscode/.claude/agents:ro' "$active"
 	# shellcheck disable=SC2016
 	add_volume_entry "$compose_file" '${HOME}/.claude/commands:/home/vscode/.claude/commands:ro' "$active"
+}
+
+# Adds Cursor config volume mounts to the agent service.
+# Args:
+#   $1 - Path to the Docker Compose file
+#   $2 - true to add as active, false to add as comment
+add_cursor_config_volumes() {
+	local compose_file=$1
+	local active=${2:-true}
+
+	# shellcheck disable=SC2016
+	add_volume_entry "$compose_file" '${HOME}/.cursor/AGENTS.md:/home/vscode/.cursor/AGENTS.md:ro' "$active" 'Host Cursor config (optional)'
+	# shellcheck disable=SC2016
+	add_volume_entry "$compose_file" '${HOME}/.cursor/rules:/home/vscode/.cursor/rules:ro' "$active"
 }
 
 
@@ -246,9 +291,9 @@ set_workspace() {
 	local workspace="/workspaces/$project_name"
 
 	project_name="$project_name" yq -i \
-		'.services.agent.working_dir = "/workspaces/" + env(project_name)' "$compose_file"
+		'.services.agent.working_dir = "/workspaces/" + strenv(project_name)' "$compose_file"
 
-	add_volume_entry "$compose_file" "..:${workspace}" "true" "Mount the project's code"
+	add_volume_entry "$compose_file" "..:${workspace}" "true" "Mount project code"
 	add_volume_entry "$compose_file" "../.devcontainer:${workspace}/.devcontainer:ro" "true" "Read-only devcontainer directory"
 	add_volume_entry "$compose_file" "../.sandcat:${workspace}/.sandcat:ro" "true" "Read-only settings directory"
 }

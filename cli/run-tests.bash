@@ -5,6 +5,24 @@ set -euo pipefail
 
 export LC_ALL=C
 
+ensure_yq_v4() {
+	if ! command -v yq >/dev/null 2>&1; then
+		echo "$0: yq is required (mikefarah/yq v4)" >&2
+		exit 1
+	fi
+
+	local yq_version
+	yq_version="$(yq --version 2>/dev/null || true)"
+	if [[ "$yq_version" != *"mikefarah/yq"* ]] && [[ "$yq_version" != *"version v4."* ]]; then
+		echo "$0: incompatible yq detected: $yq_version" >&2
+		echo "$0: install mikefarah/yq v4 and ensure it is first on PATH" >&2
+		echo "$0: see https://github.com/mikefarah/yq" >&2
+		exit 1
+	fi
+}
+
+ensure_yq_v4
+
 coverage=false
 if [[ ${1-} == "--coverage" ]]
 then

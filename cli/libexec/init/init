@@ -13,10 +13,29 @@ source "$SCT_LIBDIR/constants.bash"
 source "$SCT_LIBDIR/path.bash"
 # shellcheck source=../../lib/stacks.bash
 source "$SCT_LIBDIR/stacks.bash"
+# shellcheck source=../../lib/agents.bash
+source "$SCT_LIBDIR/agents.bash"
+
+# Returns the user settings template path for a selected agent.
+# Falls back to settings-user.json for backward compatibility.
+# Args:
+#   $1 - Agent name (claude, cursor)
+user_settings_template_path() {
+	local agent=${1:-claude}
+	local template="$SCT_TEMPLATEDIR/settings-user-${agent}.json"
+	if [[ -f "$template" ]]; then
+		echo "$template"
+	else
+		echo "$SCT_TEMPLATEDIR/settings-user.json"
+	fi
+}
 
 # Creates ~/.config/sandcat/settings.json if it doesn't already exist.
 # Derives git identity from the host's git config.
+# Args:
+#   $1 - Agent name (optional, defaults to claude)
 create_user_settings() {
+	local agent=${1:-claude}
 	local user_settings_dir
 	user_settings_dir="$(sct_home)"
 	local user_settings="$user_settings_dir/settings.json"
@@ -26,7 +45,7 @@ create_user_settings() {
 	fi
 
 	mkdir -p "$user_settings_dir"
-	cp "$SCT_TEMPLATEDIR/settings-user.json" "$user_settings"
+	cp "$(user_settings_template_path "$agent")" "$user_settings"
 
 	# Derive git identity from host config
 	local git_name git_email
@@ -38,6 +57,29 @@ create_user_settings() {
 			.env.GIT_USER_NAME = env(git_name) |
 			.env.GIT_USER_EMAIL = env(git_email)
 		' "$user_settings"
+}
+
+# Ensures Cursor-specific defaults exist in an already-created user settings file
+# without overriding user-provided values.
+ensure_cursor_user_settings_defaults() {
+	local user_settings
+	user_settings="$(sct_home)/settings.json"
+
+	if [[ ! -f "$user_settings" ]]; then
+		return
+	fi
+
+	yq -i -o json '
+		.env = (.env // {}) |
+		.env.CURSOR_USE_HTTP1_FOR_AGENT = (.env.CURSOR_USE_HTTP1_FOR_AGENT // "true") |
+		.secrets = (.secrets // {}) |
+		.secrets.CURSOR_API_KEY = (.secrets.CURSOR_API_KEY // {"value": "", "hosts": []}) |
+		.secrets.CURSOR_API_KEY.hosts = (
+			(.secrets.CURSOR_API_KEY.hosts // []) +
+			["api.cursor.sh", "api2.cursor.sh", "*.cursor.sh", "*.cursor.com"]
+			| unique
+		)
+	' "$user_settings"
 }
 
 # Adds op_service_account_token field to user settings if not already present.
@@ -58,7 +100,7 @@ add_op_token_to_user_settings() {
 # Initializes sandcat for a project.
 # Prompts for any options not provided via flags.
 # Args:
-#   --agent - Agent type (claude, copilot, codex)
+#   --agent - Agent type (claude, cursor)
 #   --ide - IDE for devcontainer mode (vscode, jetbrains, none)
 #   --name - Project name for Docker Compose
 #   --path - Project directory path
@@ -154,11 +196,12 @@ init() {
 		name=$(read_line "Project name [$default_name]:")
 	fi
 
-	local available_agents=(claude)
+	local available_agents=()
+	read -ra available_agents <<< "$(sct_available_agents)"
 	if [[ -z "$agent" ]]
 	then
 		agent=$(select_option "Select agent:" "${available_agents[@]}")
-	elif [[ ! " ${available_agents[*]} " =~ [[:space:]]${agent}[[:space:]] ]]
+	elif ! sct_is_valid_agent "$agent"
 	then
 		echo "Invalid agent: $agent (expected: ${available_agents[*]})" | error
 		return 1
@@ -257,7 +300,10 @@ init() {
 		services+=("$ide")
 	fi
 
-	create_user_settings
+	create_user_settings "$agent"
+	if [[ "$agent" == "cursor" ]]; then
+		ensure_cursor_user_settings_defaults
+	fi
 
 	if [[ "$onepassword" == "true" ]]; then
 		add_op_token_to_user_settings
@@ -294,7 +340,11 @@ init() {
 	echo "Next steps:" | info
 	echo "  Edit ~/.config/sandcat/settings.json to add your API keys:" | info
 	if [[ "$onepassword" == "true" ]]; then
-		echo "    ANTHROPIC_API_KEY  \"op\": \"op://vault/Anthropic API Key/credential\"" | info
+		if [[ "$agent" == "cursor" ]]; then
+			echo "    CURSOR_API_KEY     \"op\": \"op://vault/Cursor API Key/credential\"" | info
+		else
+			echo "    ANTHROPIC_API_KEY  \"op\": \"op://vault/Anthropic API Key/credential\"" | info
+		fi
 		echo "    GITHUB_TOKEN       \"op\": \"op://vault/GitHub Token/credential\"" | info
 		echo "    (adjust vault/item names to match your 1Password setup," | info
 		echo "     or use plain values with \"value\": \"sk-ant-...\")" | info
@@ -305,7 +355,7 @@ init() {
 		echo "    3. Add the token to ~/.config/sandcat/settings.json:" | info
 		echo "       \"op_service_account_token\": \"ops_...\"" | info
 	else
-		echo "    ANTHROPIC_API_KEY  your Anthropic API key (for Claude Code)" | info
+		echo "    $(sct_agent_api_key_help "$agent")" | info
 		echo "    GITHUB_TOKEN       a GitHub personal access token (for git push, gh cli)" | info
 	fi
 	echo "  Then run: sandcat run, or reopen the project using the dev container" | info

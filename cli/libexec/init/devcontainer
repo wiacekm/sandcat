@@ -101,6 +101,7 @@ devcontainer() {
 		customize_dockerfile "$devcontainer_dir/Dockerfile.app"
 		customize_devcontainer_extensions "$devcontainer_dir/devcontainer.json"
 	fi
+	customize_agent_templates "$devcontainer_dir" "$agent"
 
 	if [[ "$proxy_mode" == "tui" ]]; then
 		set_proxy_tui_mode "$devcontainer_dir/sandcat/compose-proxy.yml"

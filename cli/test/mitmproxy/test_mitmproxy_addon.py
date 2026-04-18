@@ -5,6 +5,7 @@ import os
 import sys
 import types
 from pathlib import Path
+from urllib.parse import urlsplit
 from unittest.mock import MagicMock, patch
 
 # Allow importing mitmproxy_addon from the templates directory.
@@ -59,8 +60,13 @@ class _Request:
         self.method = method
         self.pretty_host = host
         self.url = url
+        split = urlsplit(url)
+        self.path = split.path or "/"
+        if split.query:
+            self.path += f"?{split.query}"
         self.headers = _Headers(headers or {})
         self.content = content
+        self.stream = False
 
 
 class _Response:
@@ -81,7 +87,13 @@ sys.modules["mitmproxy"].http = _http
 sys.modules["mitmproxy"].dns = _dns
 
 # Import after mitmproxy stubs are installed in sys.modules above.
+import importlib
+
 from mitmproxy_addon import SandcatAddon, SETTINGS_PATHS  # noqa: E402
+
+# Cursor devcontainer uses `mitmproxy_addon_cursor.py` (no CURSOR-API-KEY injection).
+_mitm_cursor = importlib.import_module("mitmproxy_addon_cursor")
+CursorSandcatAddon = _mitm_cursor.SandcatAddon
 
 
 def _make_flow(method="GET", host="example.com", url=None, headers=None, content=None):
@@ -278,6 +290,77 @@ class TestSecretSubstitution:
         addon.request(flow)
         assert flow.response is not None
         assert flow.response["status"] == 403
+
+
+class TestCursorStreaming:
+    def _make_addon_with_cursor_key(self):
+        addon = CursorSandcatAddon()
+        addon.network_rules = [{"action": "allow", "host": "*"}]
+        addon.secrets = {
+            "CURSOR_API_KEY": {
+                "value": "cursor-secret",
+                "hosts": ["*.cursor.sh", "*.cursor.com"],
+                "placeholder": "SANDCAT_PLACEHOLDER_CURSOR_API_KEY",
+            }
+        }
+        return addon
+
+    def test_cursor_streaming_sets_stream_and_identity_encoding(self):
+        """Cursor template does not inject CURSOR-API-KEY; use placeholders in Authorization instead."""
+        addon = self._make_addon_with_cursor_key()
+        flow = _make_flow(
+            method="POST",
+            host="api2.cursor.sh",
+            url="https://api2.cursor.sh/agent.v1.AgentService/RunSSE",
+            headers={"content-type": "application/connect+proto"},
+            content=b"\x00\x00\x00\x00&",
+        )
+        addon.request(flow)
+        assert flow.response is None
+        assert flow.request.stream is True
+        assert flow.request.headers["accept-encoding"] == "identity"
+        assert "CURSOR-API-KEY" not in flow.request.headers
+        assert flow.request.content == b"\x00\x00\x00\x00&"
+
+    def test_cursor_streaming_does_not_touch_body_placeholders(self):
+        addon = self._make_addon_with_cursor_key()
+        flow = _make_flow(
+            method="POST",
+            host="api2.cursor.sh",
+            url="https://api2.cursor.sh/agent.v1.AgentService/RunSSE",
+            headers={"content-type": "application/connect+proto"},
+            content=b"SANDCAT_PLACEHOLDER_CURSOR_API_KEY",
+        )
+        addon.request(flow)
+        assert flow.response is None
+        assert flow.request.content == b"SANDCAT_PLACEHOLDER_CURSOR_API_KEY"
+
+    def test_cursor_streaming_substitutes_bearer_placeholder(self):
+        addon = self._make_addon_with_cursor_key()
+        flow = _make_flow(
+            method="POST",
+            host="api2.cursor.sh",
+            url="https://api2.cursor.sh/agent.v1.AgentService/RunSSE",
+            headers={
+                "content-type": "application/connect+proto",
+                "authorization": "Bearer SANDCAT_PLACEHOLDER_CURSOR_API_KEY",
+            },
+        )
+        addon.request(flow)
+        assert flow.response is None
+        assert flow.request.headers["authorization"] == "Bearer cursor-secret"
+
+    def test_cursor_streaming_response_is_marked_streaming(self):
+        addon = self._make_addon_with_cursor_key()
+        flow = _make_flow(
+            method="POST",
+            host="api2.cursor.sh",
+            url="https://api2.cursor.sh/agent.v1.AgentService/RunSSE",
+            headers={"content-type": "application/connect+proto"},
+        )
+        flow.response = types.SimpleNamespace(stream=False)
+        addon.responseheaders(flow)
+        assert flow.response.stream is True
 
 
 # ---------------------------------------------------------------------------

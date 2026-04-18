@@ -16,12 +16,12 @@ RUN apt-get update \
 
 COPY --chmod=755 sandcat/scripts/app-init.sh /usr/local/bin/app-init.sh
 COPY --chmod=755 sandcat/scripts/app-user-init.sh /usr/local/bin/app-user-init.sh
+COPY sandcat/scripts/ca-inject.js /usr/local/lib/sandcat/ca-inject.js
 COPY --chown=vscode:vscode sandcat/tmux.conf /home/vscode/.tmux.conf
 
 USER vscode
 
-# Install Claude Code (native binary — no Node.js required).
-RUN curl -fsSL https://claude.ai/install.sh | bash
+# __AGENT_DOCKER_INSTALL__
 
 # Install mise (SDK manager) for language toolchains.
 RUN curl https://mise.run | sh
@@ -51,11 +51,7 @@ RUN if MISE_JAVA=$(mise where java 2>/dev/null); then \
     } >> "$HOME/.bashrc"; \
     fi
 
-# Pre-create ~/.claude so Docker bind-mounts (CLAUDE.md, agents/, commands/)
-# don't cause it to be created as root-owned.
-RUN mkdir -p /home/vscode/.claude
-
-RUN echo 'alias claude-yolo="claude --dangerously-skip-permissions"' >> /home/vscode/.bashrc
+# __AGENT_DOCKER_HOME_PREP__
 
 USER root
 ENTRYPOINT ["/usr/local/bin/app-init.sh"]

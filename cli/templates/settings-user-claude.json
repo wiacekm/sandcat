@@ -1,0 +1,21 @@
+{
+  "env": {},
+  "secrets": {
+    "ANTHROPIC_API_KEY": {
+      "value": "",
+      "hosts": ["api.anthropic.com"]
+    },
+    "GITHUB_TOKEN": {
+      "value": "",
+      "hosts": ["github.com", "*.github.com", "*.githubusercontent.com"]
+    }
+  },
+  "network": [
+    {"action": "allow", "host": "*.github.com"},
+    {"action": "allow", "host": "github.com"},
+    {"action": "allow", "host": "*.githubusercontent.com"},
+    {"action": "allow", "host": "*.anthropic.com"},
+    {"action": "allow", "host": "*.claude.ai"},
+    {"action": "allow", "host": "*.claude.com"}
+  ]
+}

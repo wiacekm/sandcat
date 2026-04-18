@@ -45,6 +45,13 @@ assert_claude_environment_vars() {
 	yq -e '.services.agent.environment.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC == 1' "$compose_file"
 }
 
+assert_cursor_environment_vars() {
+	local compose_file=$1
+
+	# Cursor template omits `environment:` when there are no compose-level env vars.
+	yq -e '(.services.agent.environment // null) == null' "$compose_file"
+}
+
 assert_common_volumes() {
 	local compose_file=$1
 
@@ -126,7 +133,8 @@ assert_claude_volumes() {
 	" "$compose_file"
 }
 
-assert_customization_volumes() {
+# Mitmproxy project settings mount + optional .git — used for all IDE/agent combos when enabled.
+assert_customization_volumes_core() {
 	local compose_file=$1
 
 	# Bind: settings directory (read-only)
@@ -150,8 +158,12 @@ assert_customization_volumes() {
 			.read_only == true
 		)
 	" "$compose_file"
+}
 
-	# Bind: .idea (read-only)
+# Active .idea bind mount — only when JetBrains IDE (or explicit SANDCAT_MOUNT_IDEA_READONLY=true).
+assert_customization_volumes_idea() {
+	local compose_file=$1
+
 	PROJECT_DIR="$PROJECT_DIR" yq -e "
 		.services.agent.volumes[] |
 		select(
@@ -161,7 +173,37 @@ assert_customization_volumes() {
 			.read_only == true
 		)
 	" "$compose_file"
+}
 
+assert_customization_volumes() {
+	local compose_file=$1
+
+	assert_customization_volumes_core "$compose_file"
+	assert_customization_volumes_idea "$compose_file"
+}
+
+assert_cursor_volumes() {
+	local compose_file=$1
+
+	HOME="$HOME" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(HOME) + \"/.cursor/AGENTS.md\") and
+			.target == \"/home/vscode/.cursor/AGENTS.md\" and
+			.read_only == true
+		)
+	" "$compose_file"
+
+	HOME="$HOME" yq -e "
+		.services.agent.volumes[] |
+		select(
+			.type == \"bind\" and
+			.source == (env(HOME) + \"/.cursor/rules\") and
+			.target == \"/home/vscode/.cursor/rules\" and
+			.read_only == true
+		)
+	" "$compose_file"
 }
 
 assert_devcontainer_volume() {
@@ -200,6 +242,20 @@ claude_agent_compose_file_has_expected_content() {
 	assert_customization_volumes "$compose_file"
 }
 
+cursor_agent_compose_file_has_expected_content() {
+	local compose_file=$1
+
+	assert_proxy_service "$compose_file"
+	assert_agent_service "$compose_file"
+	assert_cursor_environment_vars "$compose_file"
+	assert_common_volumes "$compose_file"
+
+	assert_named_volumes "$compose_file" "agent-home" "mitmproxy-config"
+	assert_cursor_volumes "$compose_file"
+	# Cursor regression uses --ide vscode and SANDCAT_MOUNT_IDEA_READONLY=false — no active .idea mount.
+	assert_customization_volumes_core "$compose_file"
+}
+
 @test "devcontainer end-to-end: creates devcontainer config for claude agent" {
 	export SANDCAT_MOUNT_CLAUDE_CONFIG="true"
 	export SANDCAT_ENABLE_DOTFILES="true"
@@ -224,4 +280,27 @@ claude_agent_compose_file_has_expected_content() {
 
 	assert_devcontainer_volume "$effective_file"
 	assert_jetbrains_capabilities "$effective_file"
+}
+
+@test "devcontainer end-to-end: creates devcontainer config for cursor agent" {
+	export SANDCAT_MOUNT_CURSOR_CONFIG="true"
+	export SANDCAT_ENABLE_DOTFILES="true"
+	export SANDCAT_MOUNT_GIT_READONLY="true"
+	export SANDCAT_MOUNT_IDEA_READONLY="false"
+
+	run devcontainer \
+		--settings-file "$SETTINGS_FILE" \
+		--project-path "$PROJECT_DIR" \
+		--agent "cursor" \
+		--ide "vscode"
+	assert_success
+	assert_output --partial "Devcontainer dir created at .devcontainer"
+
+	local effective_file="$BATS_TEST_TMPDIR/effective-compose-cursor.yml"
+	docker compose -f "$PROJECT_DIR/.devcontainer/compose-all.yml" config > "$effective_file"
+
+	yq -e '.name == "project-sandbox"' "$effective_file"
+
+	cursor_agent_compose_file_has_expected_content "$effective_file"
+	assert_devcontainer_volume "$effective_file"
 }

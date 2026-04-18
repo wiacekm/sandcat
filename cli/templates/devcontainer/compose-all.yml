@@ -19,8 +19,7 @@ services:
       # containers should never write to this.
       - mitmproxy-config:/mitmproxy-config:ro
     command: sleep infinity
-    environment:
-      - CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+    __AGENT_ENVIRONMENT_BLOCK__
     depends_on:
       wg-client:
         condition: service_healthy

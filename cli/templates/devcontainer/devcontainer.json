@@ -20,7 +20,7 @@
 	"customizations": {
 		"vscode": {
 			"extensions": [
-				"anthropic.claude-code",
+				// __AGENT_EXTENSION__
 				"github.vscode-pull-request-github",
 				// __STACK_EXTENSIONS__
 			],
@@ -37,15 +37,7 @@
 				// For maximum protection, also set this in your host user
 				// settings (workspace settings could theoretically override it).
 				"terminal.integrated.allowLocalTerminal": false,
-				// Sandcat provides the security boundary (network isolation,
-				// secret substitution, iptables kill-switch), so permission
-				// prompts inside the container add friction without meaningful
-				// security benefit. Remove these if you prefer interactive
-				// permission approval.
-				"claudeCode.allowDangerouslySkipPermissions": true,
-				"claudeCode.initialPermissionMode": "bypassPermissions",
-				// Optional: override the default Claude model.
-				"claudeCode.selectedModel": "opus"
+				// __AGENT_SETTINGS__
 			}
 		}
 	}

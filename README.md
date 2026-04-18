@@ -110,9 +110,9 @@ Selecting `scala` automatically includes `java` as a dependency. Stacks also
 install the corresponding VS Code extension (e.g. `rust-analyzer` for Rust,
 `metals` for Scala).
 
-Optional volume mounts (Claude config, .git, .idea) are configurable in the
-generated compose file. Claude config mounts are active by default for the
-Claude agent; .git and .idea are commented out. Set `SANDCAT_*` environment
+Optional volume mounts (agent config, .git, .idea) are configurable in the
+generated compose file. Agent config mounts are active by default for the
+selected agent; .git and .idea are commented out. Set `SANDCAT_*` environment
 variables for scripted usage. See the [CLI README](cli/README.md) for the full
 list of flags and environment variables.
 
@@ -151,8 +151,9 @@ multiple sandboxes are running in parallel.
 
 **`compose-all.yml`** — `network_mode: "service:wg-client"` routes all traffic
 through the WireGuard tunnel. The `mitmproxy-config` volume gives your container
-access to the CA cert, env vars, and secret placeholders. The `~/.claude/*`
-bind-mounts forward host Claude Code customizations — remove any mount whose
+access to the CA cert, env vars, and secret placeholders. The agent-specific
+config bind-mounts (for example `~/.claude/*` or `~/.cursor/*`) forward host
+customizations — remove any mount whose
 source does not exist on your host.
 
 **`Dockerfile.app`** — uses [mise](https://mise.jdx.dev/) to manage language
@@ -292,7 +293,7 @@ Each rule has:
 `sandcat init` creates two settings files automatically:
 
 - **User settings** (`~/.config/sandcat/settings.json`) — allows full access to
-  GitHub and Anthropic/Claude, with empty API key placeholders. This is a
+  GitHub and Anthropic/Claude-compatible hosts, with empty API key placeholders. This is a
   liberal default: the agent can read arbitrary GitHub content (prompt injection
   vector) and push data (exfiltration vector).
 - **Project settings** (`.sandcat/settings.json`) — allows all GET traffic to
@@ -478,6 +479,39 @@ host (read-only) so your personal instructions, custom agents, and slash
 commands are available inside the container. Remove any mount whose source does
 not exist on your host — Docker will otherwise create an empty directory in its
 place.
+
+### Cursor CLI
+
+Cursor CLI support is available via `sandcat init --agent cursor`.
+
+- The current template uses temporary compatibility defaults for auth/network.
+- Use `CURSOR_API_KEY` in your user settings for Cursor authentication.
+- Cursor network transport can be controlled via user settings:
+  `env.CURSOR_USE_HTTP1_FOR_AGENT` (`"true"` by default in the Cursor template).
+  On container startup, Sandcat writes this to
+  `~/.config/cursor/cli-config.json` (`~/.cursor/cli-config.json` is also
+  updated for compatibility) as `.network.useHttp1ForAgent`.
+- `SANDCAT_MOUNT_CURSOR_CONFIG=true` mounts `~/.cursor/AGENTS.md` and
+  `~/.cursor/rules` into the agent container.
+- **Cursor CLI TLS through mitmproxy.** The Cursor CLI bundles its own Node.js
+  binary with compiled-in Mozilla CA roots. Sandcat sets
+  `NODE_OPTIONS=--use-openssl-ca` so the bundled Node.js uses the system CA
+  store (which includes the mitmproxy CA) instead of its built-in roots. As
+  an additional fallback, `app-user-init.sh` patches the `cursor-agent`
+  launcher script to pass `--use-openssl-ca` directly to the Node.js
+  invocation. This allows mitmproxy to intercept Cursor API traffic and
+  perform `SANDCAT_PLACEHOLDER_CURSOR_API_KEY` substitution transparently.
+- **Cursor API TLS passthrough (opt-in).** If the CA trust fix above does not
+  work for a particular Cursor CLI build, set
+  `SANDCAT_CURSOR_TLS_PASSTHROUGH=true` before running `sandcat init` to
+  append mitmproxy `--ignore-hosts` for `*.cursor.sh:443` and
+  `*.cursor.com:443`. This skips TLS interception for Cursor API traffic.
+  **Sandcat cannot substitute `SANDCAT_PLACEHOLDER_CURSOR_API_KEY` on
+  passthrough traffic** (mitmproxy never sees plaintext). Put your real
+  Cursor API key in `~/.config/cursor/auth.json` inside the container when
+  passthrough is enabled.
+- Provider-specific onboarding/bootstrap logic is intentionally minimal in this
+  first iteration and can be extended in project-level Dockerfile/scripts.
 
 ## Architecture
 
@@ -819,8 +853,11 @@ mitmproxy CA. `app-init.sh` installs it into the system trust store, which is
 enough for most tools — but some runtimes bring their own CA handling:
 
 - **Node.js** bundles its own CA certificates and ignores the system store.
-  `app-init.sh` sets `NODE_EXTRA_CA_CERTS` automatically. If you write a custom
-  entrypoint, make sure to include this or Node-based tools will fail TLS
+  `app-init.sh` sets `NODE_EXTRA_CA_CERTS` and
+  `NODE_OPTIONS=--use-openssl-ca` automatically. The `--use-openssl-ca` flag
+  is required for tools that bundle their own Node.js binary (e.g. Cursor CLI)
+  where `NODE_EXTRA_CA_CERTS` alone may not be honored. If you write a custom
+  entrypoint, make sure to include both or Node-based tools will fail TLS
   verification.
 - **Rust** programs using `rustls` with the `webpki-roots` crate bundle CA
   certificates at compile time and will not trust the mitmproxy CA. Use

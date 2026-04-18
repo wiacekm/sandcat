@@ -29,7 +29,7 @@ stack_extension() {
 		scala)  echo "scalameta.metals" ;;
 		ruby)   echo "shopify.ruby-lsp" ;;
 		dotnet) echo "ms-dotnettools.csdevkit" ;;
-		dotnet) echo "ziglang.vscode-zig" ;;
+		zig)    echo "ziglang.vscode-zig" ;;
 		*)      echo "" ;;
 	esac
 }

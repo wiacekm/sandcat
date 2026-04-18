@@ -4,9 +4,14 @@
 # Example usage:
 # `echo 'Terrible error' | error`
 
-if ! tput sgr0 &>/dev/null
-then
-	tput() { :; }
+if ! tput sgr0 &>/dev/null; then
+	# Color output is best-effort; logging must never fail if TERM is unset
+	# or if terminal capabilities are unavailable.
+	_sct_tput() { :; }
+else
+	_sct_tput() {
+		tput "$@" 2>/dev/null || true
+	}
 fi
 
 _log() {
@@ -16,10 +21,10 @@ _log() {
 	ts=$(date +%T)
 	while IFS= read -r line; do
 		echo -n "$ts "
-		tput setaf "$color"
-		tput bold
+		_sct_tput setaf "$color"
+		_sct_tput bold
 		echo -n "$label "
-		tput sgr0
+		_sct_tput sgr0
 		echo "$line"
 	done
 } >&2

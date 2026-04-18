@@ -1,0 +1,22 @@
+{
+  "env": {
+    "CURSOR_USE_HTTP1_FOR_AGENT": "true"
+  },
+  "secrets": {
+    "CURSOR_API_KEY": {
+      "value": "",
+      "hosts": ["api.cursor.sh", "api2.cursor.sh", "*.cursor.sh", "*.cursor.com"]
+    },
+    "GITHUB_TOKEN": {
+      "value": "",
+      "hosts": ["github.com", "*.github.com", "*.githubusercontent.com"]
+    }
+  },
+  "network": [
+    {"action": "allow", "host": "*.github.com"},
+    {"action": "allow", "host": "github.com"},
+    {"action": "allow", "host": "*.githubusercontent.com"},
+    {"action": "allow", "host": "*.cursor.sh"},
+    {"action": "allow", "host": "*.cursor.com"}
+  ]
+}

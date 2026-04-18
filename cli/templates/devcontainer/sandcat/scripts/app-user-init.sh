@@ -6,6 +6,10 @@
 #
 set -e
 
+# su -m preserves the caller's environment (including HOME=/root).
+# Override HOME so git config and other tools write to the correct location.
+export HOME="/home/vscode"
+
 if [ -n "${GIT_USER_NAME:-}" ]; then
     git config --global user.name "$GIT_USER_NAME"
 fi
@@ -80,13 +84,5 @@ EOFJSON
     fi
 fi
 
-# Seed the onboarding flag so Claude Code uses the API key without interactive
-# setup. Only written when the user configured an ANTHROPIC_API_KEY secret.
-if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-    echo '{"hasCompletedOnboarding":true}' > "$HOME/.claude.json"
-fi
-
-# Claude Code is installed at build time (Dockerfile.app).
-# Background update so it doesn't block startup.
-(claude install >/dev/null 2>&1 &)
+__AGENT_USER_INIT__
 
