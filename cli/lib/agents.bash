@@ -209,40 +209,23 @@ OVERRIDE
 fi
 
 # Cursor CLI networking bootstrap.
-# Some proxy/TLS environments are unstable with HTTP/2 streaming. Allow
-# sandcat user settings to control Cursor CLI fallback:
-#   env.CURSOR_USE_HTTP1_FOR_AGENT = "true" | "false"
-#
-# When set, update Cursor CLI config with:
-#   .network.useHttp1ForAgent = <bool>
-if [ -n "${CURSOR_USE_HTTP1_FOR_AGENT:-}" ]; then
-    case "${CURSOR_USE_HTTP1_FOR_AGENT,,}" in
-        true|1|yes|on)  cursor_use_http1=true ;;
-        false|0|no|off) cursor_use_http1=false ;;
-        *)
-            echo "Warning: invalid CURSOR_USE_HTTP1_FOR_AGENT=$CURSOR_USE_HTTP1_FOR_AGENT (expected true/false), skipping Cursor CLI network bootstrap" >&2
-            cursor_use_http1=""
-            ;;
-    esac
-
-    if [ -n "${cursor_use_http1:-}" ]; then
-        if command -v jq >/dev/null 2>&1; then
-            for CURSOR_CLI_CONFIG in "$HOME/.config/cursor/cli-config.json" "$HOME/.cursor/cli-config.json"; do
-                mkdir -p "$(dirname "$CURSOR_CLI_CONFIG")"
-                if [ ! -f "$CURSOR_CLI_CONFIG" ]; then
-                    echo '{"version":1}' > "$CURSOR_CLI_CONFIG"
-                fi
-                tmp="$(mktemp)"
-                jq --argjson useHttp1 "$cursor_use_http1" \
-                    '.network = (.network // {}) | .network.useHttp1ForAgent = $useHttp1' \
-                    "$CURSOR_CLI_CONFIG" > "$tmp" \
-                    && mv "$tmp" "$CURSOR_CLI_CONFIG" \
-                    || { rm -f "$tmp"; echo "Warning: failed to update $CURSOR_CLI_CONFIG via jq" >&2; }
-            done
-        else
-            echo "Warning: jq not found; cannot apply CURSOR_USE_HTTP1_FOR_AGENT to Cursor CLI config" >&2
+# Some proxy/TLS environments are unstable with HTTP/2 streaming, so always
+# enforce the Cursor CLI HTTP/1 compatibility setting.
+if command -v jq >/dev/null 2>&1; then
+    for CURSOR_CLI_CONFIG in "$HOME/.config/cursor/cli-config.json" "$HOME/.cursor/cli-config.json"; do
+        mkdir -p "$(dirname "$CURSOR_CLI_CONFIG")"
+        if [ ! -f "$CURSOR_CLI_CONFIG" ]; then
+            echo '{"version":1}' > "$CURSOR_CLI_CONFIG"
         fi
-    fi
+        tmp="$(mktemp)"
+        jq \
+            '.network = (.network // {}) | .network.useHttp1ForAgent = true' \
+            "$CURSOR_CLI_CONFIG" > "$tmp" \
+            && mv "$tmp" "$CURSOR_CLI_CONFIG" \
+            || { rm -f "$tmp"; echo "Warning: failed to update $CURSOR_CLI_CONFIG via jq" >&2; }
+    done
+else
+    echo "Warning: jq not found; cannot apply Cursor CLI HTTP/1 bootstrap config" >&2
 fi
 EOF
 			;;

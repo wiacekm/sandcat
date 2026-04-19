@@ -90,18 +90,6 @@ teardown() {
 	assert_output --partial "api.cursor.sh"
 }
 
-@test "create_user_settings for cursor enables HTTP/1 fallback env" {
-	stub git \
-		"config --global user.name : echo ''" \
-		"config --global user.email : echo ''"
-
-	create_user_settings cursor
-
-	local settings="$HOME/.config/sandcat/settings.json"
-	run yq -r '.env.CURSOR_USE_HTTP1_FOR_AGENT' "$settings"
-	assert_output --partial "true"
-}
-
 @test "create_user_settings for cursor does not include ANTHROPIC_API_KEY" {
 	stub git \
 		"config --global user.name : echo ''" \
@@ -148,7 +136,7 @@ teardown() {
 	assert_output --partial "true"
 }
 
-@test "ensure_cursor_user_settings_defaults backfills missing cursor env and hosts" {
+@test "ensure_cursor_user_settings_defaults backfills missing cursor hosts" {
 	mkdir -p "$HOME/.config/sandcat"
 	cat > "$HOME/.config/sandcat/settings.json" <<'EOF'
 {
@@ -167,8 +155,6 @@ EOF
 	ensure_cursor_user_settings_defaults
 
 	local settings="$HOME/.config/sandcat/settings.json"
-	run yq -r '.env.CURSOR_USE_HTTP1_FOR_AGENT' "$settings"
-	assert_output --partial "true"
 	run yq -r '.secrets.CURSOR_API_KEY.value' "$settings"
 	assert_output --partial "existing-key"
 	yq -e '.secrets.CURSOR_API_KEY.hosts[] | select(. == "api.cursor.sh")' "$settings"

@@ -1,7 +1,5 @@
 {
-  "env": {
-    "CURSOR_USE_HTTP1_FOR_AGENT": "true"
-  },
+  "env": {},
   "secrets": {
     "CURSOR_API_KEY": {
       "value": "",

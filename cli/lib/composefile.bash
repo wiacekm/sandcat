@@ -52,12 +52,6 @@ customize_compose_file() {
 			;;
 		cursor)
 			add_cursor_config_volumes "$compose_file" "${SANDCAT_MOUNT_CURSOR_CONFIG:=true}"
-			if [[ "${SANDCAT_CURSOR_TLS_PASSTHROUGH:-false}" == "true" ]]; then
-				local proxy_compose="$compose_dir/sandcat/compose-proxy.yml"
-				if [[ -f "$proxy_compose" ]]; then
-					add_mitm_ignore_hosts_cursor_api "$proxy_compose"
-				fi
-			fi
 			;;
 	esac
 
@@ -74,24 +68,6 @@ customize_compose_file() {
 	# When a blank line is followed by an indented line, strip the blank line
 	# via substitution to keep the indented line intact.
 	sed '/^$/{ N; /^\n[[:space:]]/{ s/^\n//; }; }' "$compose_file" > "$compose_file.tmp" && mv "$compose_file.tmp" "$compose_file"
-}
-
-# Appends mitmproxy --ignore-hosts so TLS to Cursor API hosts is not decrypted
-# (passthrough). Enabled by default because Cursor CLI uses native TLS with
-# cert pinning that rejects the mitmproxy CA. The real API key is injected
-# client-side from sandcat-secrets.json instead of via MITM substitution.
-# Set SANDCAT_CURSOR_TLS_PASSTHROUGH=false to attempt MITM (experimental).
-# Args:
-#   $1 - Path to sandcat/compose-proxy.yml
-add_mitm_ignore_hosts_cursor_api() {
-	local proxy_compose=$1
-
-	require yq
-
-	local pattern='^(.+\.)?cursor\.(sh|com):443$$'
-	SANDCAT_CURSOR_IGNORE_HOSTS="$pattern" yq -i \
-		'.services.mitmproxy.command = (.services.mitmproxy.command | tostring) + " --ignore-hosts '\''" + strenv(SANDCAT_CURSOR_IGNORE_HOSTS) + "'\''"' \
-		"$proxy_compose"
 }
 
 # Enables 1Password integration in the mitmproxy service.
@@ -254,6 +230,8 @@ add_cursor_config_volumes() {
 	add_volume_entry "$compose_file" '${HOME}/.cursor/AGENTS.md:/home/vscode/.cursor/AGENTS.md:ro' "$active" 'Host Cursor config (optional)'
 	# shellcheck disable=SC2016
 	add_volume_entry "$compose_file" '${HOME}/.cursor/rules:/home/vscode/.cursor/rules:ro' "$active"
+		# shellcheck disable=SC2016
+	add_volume_entry "$compose_file" '${HOME}/.cursor/skills:/home/vscode/.cursor/skills:ro' "$active"
 }
 
 

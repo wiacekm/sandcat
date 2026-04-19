@@ -71,7 +71,6 @@ ensure_cursor_user_settings_defaults() {
 
 	yq -i -o json '
 		.env = (.env // {}) |
-		.env.CURSOR_USE_HTTP1_FOR_AGENT = (.env.CURSOR_USE_HTTP1_FOR_AGENT // "true") |
 		.secrets = (.secrets // {}) |
 		.secrets.CURSOR_API_KEY = (.secrets.CURSOR_API_KEY // {"value": "", "hosts": []}) |
 		.secrets.CURSOR_API_KEY.hosts = (

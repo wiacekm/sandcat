@@ -25,7 +25,6 @@ YAML
 
 teardown() {
 	unstub_all
-	unset SANDCAT_CURSOR_TLS_PASSTHROUGH 2>/dev/null || true
 }
 
 @test "add_settings_volume adds settings mount to proxy service" {
@@ -54,7 +53,7 @@ teardown() {
 	add_cursor_config_volumes "$COMPOSE_FILE"
 
 	run yq '.services.agent.volumes | length' "$COMPOSE_FILE"
-	assert_output "3"
+	assert_output "4"
 
 	# shellcheck disable=SC2016
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/AGENTS.md:/home/vscode/.cursor/AGENTS.md:ro")' "$COMPOSE_FILE"
@@ -262,29 +261,4 @@ EOF
 
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/AGENTS.md:/home/vscode/.cursor/AGENTS.md:ro")' "$COMPOSE_FILE"
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/rules:/home/vscode/.cursor/rules:ro")' "$COMPOSE_FILE"
-}
-
-@test "customize_compose_file does not add mitm ignore-hosts for cursor by default" {
-	SETTINGS_FILE=".sandcat/settings.json"
-	mkdir -p "$BATS_TEST_TMPDIR/.sandcat" "$BATS_TEST_TMPDIR/sandcat"
-	touch "$BATS_TEST_TMPDIR/$SETTINGS_FILE"
-	cp "$SCT_ROOT/templates/devcontainer/sandcat/compose-proxy.yml" "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
-
-	unset SANDCAT_CURSOR_TLS_PASSTHROUGH || true
-	customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" "cursor" "vscode" "test-project"
-
-	run grep -F 'ignore-hosts' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
-	assert_failure
-}
-
-@test "SANDCAT_CURSOR_TLS_PASSTHROUGH=true appends mitm ignore-hosts for cursor" {
-	SETTINGS_FILE=".sandcat/settings.json"
-	mkdir -p "$BATS_TEST_TMPDIR/.sandcat" "$BATS_TEST_TMPDIR/sandcat"
-	touch "$BATS_TEST_TMPDIR/$SETTINGS_FILE"
-	cp "$SCT_ROOT/templates/devcontainer/sandcat/compose-proxy.yml" "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
-
-	export SANDCAT_CURSOR_TLS_PASSTHROUGH=true
-	customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" "cursor" "vscode" "test-project"
-
-	yq -e '.services.mitmproxy.command | test("ignore-hosts")' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
 }

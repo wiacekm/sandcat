@@ -486,11 +486,10 @@ Cursor CLI support is available via `sandcat init --agent cursor`.
 
 - The current template uses temporary compatibility defaults for auth/network.
 - Use `CURSOR_API_KEY` in your user settings for Cursor authentication.
-- Cursor network transport can be controlled via user settings:
-  `env.CURSOR_USE_HTTP1_FOR_AGENT` (`"true"` by default in the Cursor template).
-  On container startup, Sandcat writes this to
+- On container startup, Sandcat writes
+  `.network.useHttp1ForAgent = true` to
   `~/.config/cursor/cli-config.json` (`~/.cursor/cli-config.json` is also
-  updated for compatibility) as `.network.useHttp1ForAgent`.
+  updated for compatibility).
 - `SANDCAT_MOUNT_CURSOR_CONFIG=true` mounts `~/.cursor/AGENTS.md` and
   `~/.cursor/rules` into the agent container.
 - **Cursor CLI TLS through mitmproxy.** The Cursor CLI bundles its own Node.js
@@ -501,15 +500,6 @@ Cursor CLI support is available via `sandcat init --agent cursor`.
   launcher script to pass `--use-openssl-ca` directly to the Node.js
   invocation. This allows mitmproxy to intercept Cursor API traffic and
   perform `SANDCAT_PLACEHOLDER_CURSOR_API_KEY` substitution transparently.
-- **Cursor API TLS passthrough (opt-in).** If the CA trust fix above does not
-  work for a particular Cursor CLI build, set
-  `SANDCAT_CURSOR_TLS_PASSTHROUGH=true` before running `sandcat init` to
-  append mitmproxy `--ignore-hosts` for `*.cursor.sh:443` and
-  `*.cursor.com:443`. This skips TLS interception for Cursor API traffic.
-  **Sandcat cannot substitute `SANDCAT_PLACEHOLDER_CURSOR_API_KEY` on
-  passthrough traffic** (mitmproxy never sees plaintext). Put your real
-  Cursor API key in `~/.config/cursor/auth.json` inside the container when
-  passthrough is enabled.
 - Provider-specific onboarding/bootstrap logic is intentionally minimal in this
   first iteration and can be extended in project-level Dockerfile/scripts.
 

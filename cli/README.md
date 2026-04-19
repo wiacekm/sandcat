@@ -40,9 +40,7 @@ sandcat init --agent claude --ide vscode --features "1password" --name myproject
 Note: Cursor agent support currently uses compatibility defaults for auth/network
 settings while provider-specific hardening is being expanded.
 Use `CURSOR_API_KEY` for Cursor authentication.
-Set `env.CURSOR_USE_HTTP1_FOR_AGENT` in `~/.config/sandcat/settings.json` to
-control Cursor CLI's `.network.useHttp1ForAgent` (defaults to `"true"` in the
-Cursor user-settings template).
+Sandcat always bootstraps Cursor CLI with `.network.useHttp1ForAgent = true`.
 
 #### `sandcat init devcontainer`
 

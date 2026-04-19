@@ -89,7 +89,7 @@ fi
 
 # Run vscode-user tasks: git identity, Java trust store, Cursor/Claude bootstrap.
 # Preserve environment loaded from sandcat.env so user-init can read variables
-# such as CURSOR_API_KEY and CURSOR_USE_HTTP1_FOR_AGENT reliably.
+# such as CURSOR_API_KEY reliably.
 su -m vscode -c /usr/local/bin/app-user-init.sh
 
 # Source agent-specific env overrides written by app-user-init.sh.
