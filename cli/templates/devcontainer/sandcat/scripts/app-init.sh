@@ -29,14 +29,7 @@ export NODE_EXTRA_CA_CERTS="$CA_CERT"
 # Force Node.js to use the system CA store (via OpenSSL) instead of its
 # bundled Mozilla roots. Required for tools that bundle their own Node.js
 # binary where NODE_EXTRA_CA_CERTS alone may not suffice.
-#
-# --require ca-inject.js patches tls.createSecureContext so the mitmproxy CA
-# is included even when callers pin specific CAs (bypasses cert pinning).
-CA_INJECT="/usr/local/lib/sandcat/ca-inject.js"
 SANDCAT_NODE_OPTS="--use-openssl-ca"
-if [ -f "$CA_INJECT" ]; then
-    SANDCAT_NODE_OPTS="$SANDCAT_NODE_OPTS --require $CA_INJECT"
-fi
 export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }$SANDCAT_NODE_OPTS"
 
 cat > /etc/profile.d/sandcat-node-ca.sh << NODEEOF
