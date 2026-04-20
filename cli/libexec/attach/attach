@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# shellcheck source=../../lib/require.bash
+source "$SCT_LIBDIR/require.bash"
+# shellcheck source=../../lib/path.bash
+source "$SCT_LIBDIR/path.bash"
+
+attach() {
+	require docker
+
+	local compose_file
+	compose_file="$(find_compose_file)"
+
+	if (($# == 0))
+	then
+		exec docker compose -f "$compose_file" exec -u vscode agent bash --login
+	fi
+
+	exec docker compose -f "$compose_file" exec -u vscode agent "$@"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]
+then
+	attach "$@"
+fi
