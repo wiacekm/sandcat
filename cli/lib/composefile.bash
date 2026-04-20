@@ -109,7 +109,7 @@ set_project_name() {
 	local compose_file=$1
 	local project_name=$2
 
-	project_name="$project_name" yq -i '. = {"name": strenv(project_name)} * .' "$compose_file"
+	project_name="$project_name" yq -i '. = {"name": env(project_name)} * .' "$compose_file"
 }
 
 # Adds settings volume mount to the proxy service.
@@ -125,7 +125,7 @@ add_settings_volume() {
 	settings_dir=$(dirname "$settings_file")
 
 	settings_dir="$settings_dir" yq -i \
-		'.services.mitmproxy.volumes += [strenv(settings_dir) + ":/config/project:ro"]' "$compose_file"
+		'.services.mitmproxy.volumes += [env(settings_dir) + ":/config/project:ro"]' "$compose_file"
 
 	add_foot_comment "$compose_file" ".services.mitmproxy.volumes" \
 		'Project-level settings (.sandcat/ directory). If the directory does
@@ -186,7 +186,7 @@ add_volume_entry() {
 	if [[ $active == "true" ]]
 	then
 		volume_entry="$volume_entry" yq -i \
-			'.services.agent.volumes += [strenv(volume_entry)]' "$compose_file"
+			'.services.agent.volumes += [env(volume_entry)]' "$compose_file"
 		if [[ -n $comment ]]
 		then
 			comment="$comment" yq -i \
@@ -269,9 +269,9 @@ set_workspace() {
 	local workspace="/workspaces/$project_name"
 
 	project_name="$project_name" yq -i \
-		'.services.agent.working_dir = "/workspaces/" + strenv(project_name)' "$compose_file"
+		'.services.agent.working_dir = "/workspaces/" + env(project_name)' "$compose_file"
 
-	add_volume_entry "$compose_file" "..:${workspace}" "true" "Mount project code"
+	add_volume_entry "$compose_file" "..:${workspace}" "true" "Mount the project's code"
 	add_volume_entry "$compose_file" "../.devcontainer:${workspace}/.devcontainer:ro" "true" "Read-only devcontainer directory"
 	add_volume_entry "$compose_file" "../.sandcat:${workspace}/.sandcat:ro" "true" "Read-only settings directory"
 }

@@ -178,35 +178,8 @@ EOF
 			;;
 		cursor)
 			cat <<'EOF'
-# Seed Cursor auth config with the real API key from the mitmproxy volume.
-# Cursor CLI uses a native TLS module with cert pinning, so mitmproxy cannot
-# MITM its API traffic for placeholder substitution. Instead, TLS passthrough
-# is enabled (--ignore-hosts) and the real key is injected here at startup.
-# The secrets file is on the mitmproxy-config volume (read-only mount).
-SANDCAT_SECRETS="/mitmproxy-config/sandcat-secrets.json"
-if [ -f "$SANDCAT_SECRETS" ] && command -v jq >/dev/null 2>&1; then
-    CURSOR_REAL_KEY="$(jq -r '.CURSOR_API_KEY // empty' "$SANDCAT_SECRETS")"
-    if [ -n "$CURSOR_REAL_KEY" ]; then
-        CURSOR_AUTH_CONFIG="$HOME/.config/cursor/auth.json"
-        mkdir -p "$(dirname "$CURSOR_AUTH_CONFIG")"
-        jq -n --arg key "$CURSOR_REAL_KEY" '{"apiKey":$key}' > "$CURSOR_AUTH_CONFIG"
-        unset CURSOR_REAL_KEY
-
-        # cursor-agent reads CURSOR_API_KEY from the env var (not auth.json).
-        # Write an override script that reads the real value from the JSON
-        # file at source time. app-init.sh sources this after user-init,
-        # replacing the placeholder with the real value.
-        cat > /tmp/sandcat-env-override.sh << 'OVERRIDE'
-_SCSF="/mitmproxy-config/sandcat-secrets.json"
-if [ -f "$_SCSF" ] && command -v jq >/dev/null 2>&1; then
-    _val="$(jq -r '.CURSOR_API_KEY // empty' "$_SCSF")"
-    [ -n "$_val" ] && export CURSOR_API_KEY="$_val"
-    unset _val
-fi
-unset _SCSF
-OVERRIDE
-    fi
-fi
+# Cursor auth uses the placeholder value from sandcat.env. The mitmproxy addon
+# substitutes it with the real secret on allowed outbound Cursor requests.
 
 # Cursor CLI networking bootstrap.
 # Some proxy/TLS environments are unstable with HTTP/2 streaming, so always

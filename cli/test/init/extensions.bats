@@ -129,7 +129,7 @@ teardown() {
 	assert_success
 }
 
-@test "customize_agent_templates adds cursor auth bootstrap" {
+@test "customize_agent_templates adds cursor bootstrap settings" {
 	{
 		echo 'include: []'
 		echo 'services: {agent: {environment: []}}'
@@ -138,12 +138,6 @@ teardown() {
 	echo "__AGENT_USER_INIT__" > "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
 
 	customize_agent_templates "$BATS_TEST_TMPDIR" "cursor"
-
-	run grep 'sandcat-secrets.json' "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
-	assert_success
-
-	run grep 'CURSOR_AUTH_CONFIG="$HOME/.config/cursor/auth.json"' "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
-	assert_success
 
 	run grep '"$HOME/.config/cursor/cli-config.json"' "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
 	assert_success

@@ -92,18 +92,6 @@ fi
 # such as CURSOR_API_KEY reliably.
 su -m vscode -c /usr/local/bin/app-user-init.sh
 
-# Source agent-specific env overrides written by app-user-init.sh.
-# Needed because user-init runs in a subprocess (su -m) so its env changes
-# don't propagate back. The override file lets agents inject real secret
-# values into the entrypoint environment (e.g. CURSOR_API_KEY for tools
-# whose native TLS prevents mitmproxy MITM substitution).
-SANDCAT_ENV_OVERRIDE="/tmp/sandcat-env-override.sh"
-if [ -f "$SANDCAT_ENV_OVERRIDE" ]; then
-    . "$SANDCAT_ENV_OVERRIDE"
-    cp "$SANDCAT_ENV_OVERRIDE" /etc/profile.d/sandcat-env-override.sh
-    rm -f "$SANDCAT_ENV_OVERRIDE"
-fi
-
 # Source all sandcat profile.d scripts from /etc/bash.bashrc so env vars
 # are available in non-login shells (e.g. VS Code integrated terminals).
 # Guard with a marker to avoid duplicating on container restart.
