@@ -490,16 +490,15 @@ Cursor CLI support is available via `sandcat init --agent cursor`.
   `.network.useHttp1ForAgent = true` to
   `~/.config/cursor/cli-config.json` (`~/.cursor/cli-config.json` is also
   updated for compatibility).
-- `SANDCAT_MOUNT_CURSOR_CONFIG=true` mounts `~/.cursor/AGENTS.md` and
-  `~/.cursor/rules` into the agent container.
+- `SANDCAT_MOUNT_CURSOR_CONFIG=true` mounts `~/.cursor/AGENTS.md`,
+  `~/.cursor/rules`, and `~/.cursor/skills` into the agent container.
 - **Cursor CLI TLS through mitmproxy.** The Cursor CLI bundles its own Node.js
   binary with compiled-in Mozilla CA roots. Sandcat sets
   `NODE_OPTIONS=--use-openssl-ca` so the bundled Node.js uses the system CA
-  store (which includes the mitmproxy CA) instead of its built-in roots. As
-  an additional fallback, `app-user-init.sh` patches the `cursor-agent`
-  launcher script to pass `--use-openssl-ca` directly to the Node.js
-  invocation. This allows mitmproxy to intercept Cursor API traffic and
-  perform `SANDCAT_PLACEHOLDER_CURSOR_API_KEY` substitution transparently.
+  store (which includes the mitmproxy CA) instead of its built-in roots.
+  When Cursor honors that environment setting, mitmproxy can intercept Cursor
+  API traffic and perform `SANDCAT_PLACEHOLDER_CURSOR_API_KEY` substitution
+  transparently.
 - Provider-specific onboarding/bootstrap logic is intentionally minimal in this
   first iteration and can be extended in project-level Dockerfile/scripts.
 

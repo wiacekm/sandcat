@@ -30,6 +30,15 @@ git config --global commit.gpgsign false
 git config --global --replace-all url."https://github.com/".insteadOf "git@github.com:" "git@github.com:"
 git config --global --replace-all url."https://github.com/".insteadOf "ssh://git@github.com/" "ssh://git@github.com/"
 
+# Mark mounted workspaces as safe Git directories to avoid
+# "detected dubious ownership" errors in devcontainers.
+for ws_dir in /workspaces/*; do
+    [ -d "$ws_dir" ] || continue
+    if ! git config --global --get-all safe.directory | grep -Fx "$ws_dir" >/dev/null 2>&1; then
+        git config --global --add safe.directory "$ws_dir"
+    fi
+done
+
 # If Java is installed (via mise), import the mitmproxy CA into Java's trust
 # store. Java uses its own cacerts and ignores the system CA store.
 CA_CERT="/mitmproxy-config/mitmproxy-ca-cert.pem"

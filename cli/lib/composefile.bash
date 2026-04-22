@@ -95,7 +95,7 @@ set_proxy_tui_mode() {
 	local compose_file=$1
 
 	yq -i '
-		.services.mitmproxy.command = "mitmdump --mode wireguard -s /scripts/mitmproxy_addon.py" |
+		.services.mitmproxy.command |= sub("^mitmweb", "mitmdump") |
 		del(.services.mitmproxy.ports)
 	' "$compose_file"
 }

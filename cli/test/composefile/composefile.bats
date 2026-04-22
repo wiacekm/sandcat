@@ -49,7 +49,7 @@ teardown() {
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.claude/commands:/home/vscode/.claude/commands:ro")' "$COMPOSE_FILE"
 }
 
-@test "add_cursor_config_volumes adds AGENTS.md and rules" {
+@test "add_cursor_config_volumes adds AGENTS.md, rules, and skills" {
 	add_cursor_config_volumes "$COMPOSE_FILE"
 
 	run yq '.services.agent.volumes | length' "$COMPOSE_FILE"
@@ -60,6 +60,9 @@ teardown() {
 
 	# shellcheck disable=SC2016
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/rules:/home/vscode/.cursor/rules:ro")' "$COMPOSE_FILE"
+
+	# shellcheck disable=SC2016
+	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/skills:/home/vscode/.cursor/skills:ro")' "$COMPOSE_FILE"
 }
 
 
