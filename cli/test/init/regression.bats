@@ -48,8 +48,9 @@ assert_claude_environment_vars() {
 assert_cursor_environment_vars() {
 	local compose_file=$1
 
-	# Cursor template omits `environment:` when there are no compose-level env vars.
-	yq -e '(.services.agent.environment // null) == null' "$compose_file"
+	# Cursor template must omit `environment:` entirely when there are no
+	# compose-level env vars. `environment: {}` breaks compose validation.
+	yq -e '.services.agent | has("environment") | not' "$compose_file"
 }
 
 assert_common_volumes() {

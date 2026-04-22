@@ -142,7 +142,7 @@ teardown() {
 	run grep '"$HOME/.config/cursor/cli-config.json"' "$BATS_TEST_TMPDIR/sandcat/scripts/app-user-init.sh"
 	assert_success
 
-	run grep 'http2=false' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+	run grep 'http2=true' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
 	assert_success
 
 	run grep '/scripts/mitmproxy_addon_cursor.py' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"

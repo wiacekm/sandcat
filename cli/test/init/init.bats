@@ -92,7 +92,7 @@ teardown() {
 		"'Select IDE:' vscode jetbrains none : echo vscode"
 	stub select_multiple \
 		"'Select optional features (comma-separated numbers, enter for defaults):' 'tui (mitmproxy console instead of web UI)' 1password -- 1password : echo 1password" \
-		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet : echo ''"
+		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 	stub add_op_token_to_user_settings ":"
 
 	local expected_name
@@ -119,7 +119,7 @@ teardown() {
 		"'Select IDE:' vscode jetbrains none : echo vscode"
 	stub select_multiple \
 		"'Select optional features (comma-separated numbers, empty for none):' 'tui (mitmproxy console instead of web UI)' 1password -- : echo ''" \
-		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet : echo ''"
+		"'Select development stacks (comma-separated numbers, empty for none):' node python java rust go scala ruby dotnet zig : echo ''"
 
 	local expected_name
 	expected_name=$(basename "$PROJECT_DIR")-sandbox

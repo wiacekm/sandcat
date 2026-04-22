@@ -26,7 +26,6 @@ SETTINGS_PATHS = [
     "/config/project/settings.local.json",
 ]
 SANDCAT_ENV_PATH = "/home/mitmproxy/.mitmproxy/sandcat.env"
-SANDCAT_SECRETS_PATH = "/home/mitmproxy/.mitmproxy/sandcat-secrets.json"
 
 logger = logging.getLogger(__name__)
 
@@ -60,11 +59,10 @@ class SandcatAddon:
         self._load_secrets(merged["secrets"])
         self._load_network_rules(merged["network"])
         self._write_placeholders_env()
-        self._write_secrets_json()
 
         ctx.log.info(
             f"Loaded {len(self.env)} env var(s) and {len(self.secrets)} secret(s), "
-            f"wrote {SANDCAT_ENV_PATH} and {SANDCAT_SECRETS_PATH}"
+            f"wrote {SANDCAT_ENV_PATH}"
         )
 
     @staticmethod
@@ -240,12 +238,6 @@ class SandcatAddon:
             lines.append(f'export {name}="{self._shell_escape(entry["placeholder"])}"')
         with open(SANDCAT_ENV_PATH, "w") as f:
             f.write("\n".join(lines) + "\n")
-
-    def _write_secrets_json(self):
-        data = {name: entry["value"] for name, entry in self.secrets.items()}
-        with open(SANDCAT_SECRETS_PATH, "w") as f:
-            json.dump(data, f)
-        os.chmod(SANDCAT_SECRETS_PATH, 0o600)
 
     def _is_request_allowed(self, method: str | None, host: str) -> bool:
         rule = self._find_matching_rule(method, host)

@@ -17,17 +17,16 @@ source "$SCT_LIBDIR/stacks.bash"
 source "$SCT_LIBDIR/agents.bash"
 
 # Returns the user settings template path for a selected agent.
-# Falls back to settings-user.json for backward compatibility.
 # Args:
 #   $1 - Agent name (claude, cursor)
 user_settings_template_path() {
 	local agent=${1:-claude}
 	local template="$SCT_TEMPLATEDIR/settings-user-${agent}.json"
-	if [[ -f "$template" ]]; then
-		echo "$template"
-	else
-		echo "$SCT_TEMPLATEDIR/settings-user.json"
+	if [[ ! -f "$template" ]]; then
+		echo "Missing user settings template for agent '$agent': $template" | error
+		return 1
 	fi
+	echo "$template"
 }
 
 # Creates ~/.config/sandcat/settings.json if it doesn't already exist.

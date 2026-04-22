@@ -80,10 +80,10 @@ else
     echo "No $SANDCAT_ENV found — env vars and secret substitution disabled"
 fi
 
-# Run vscode-user tasks: git identity, Java trust store, Cursor/Claude bootstrap.
-# Preserve environment loaded from sandcat.env so user-init can read variables
-# such as CURSOR_API_KEY reliably.
-su -m vscode -c /usr/local/bin/app-user-init.sh
+# Run vscode-user tasks in a login shell so user profile customizations
+# (PATH/NVM/direnv, etc.) are applied. Re-source sandcat.env inside that
+# shell so app-user-init still receives sandcat placeholders and env vars.
+su - vscode -c '. /mitmproxy-config/sandcat.env 2>/dev/null || true; /usr/local/bin/app-user-init.sh'
 
 # Source all sandcat profile.d scripts from /etc/bash.bashrc so env vars
 # are available in non-login shells (e.g. VS Code integrated terminals).

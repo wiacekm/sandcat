@@ -265,3 +265,43 @@ EOF
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/AGENTS.md:/home/vscode/.cursor/AGENTS.md:ro")' "$COMPOSE_FILE"
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/rules:/home/vscode/.cursor/rules:ro")' "$COMPOSE_FILE"
 }
+
+@test "set_proxy_tui_mode keeps addon path and mitm flags" {
+	local proxy_compose="$BATS_TEST_TMPDIR/compose-proxy.yml"
+	cat >"$proxy_compose" <<'YAML'
+services:
+  mitmproxy:
+    command: mitmweb --mode wireguard --web-host 0.0.0.0 --set web_password=mitmproxy --set http2=true --set stream_large_bodies=1m --set connection_strategy=lazy --set anticomp=true --set timeout_read=300 -s /scripts/mitmproxy_addon_claude.py
+    ports:
+      - "8081"
+YAML
+
+	set_proxy_tui_mode "$proxy_compose"
+
+	run yq -r '.services.mitmproxy.command' "$proxy_compose"
+	assert_output "mitmdump --mode wireguard --web-host 0.0.0.0 --set web_password=mitmproxy --set http2=true --set stream_large_bodies=1m --set connection_strategy=lazy --set anticomp=true --set timeout_read=300 -s /scripts/mitmproxy_addon_claude.py"
+
+	yq -e '.services.mitmproxy.command | contains("stream_large_bodies=1m")' "$proxy_compose"
+	yq -e '.services.mitmproxy.command | contains("connection_strategy=lazy")' "$proxy_compose"
+	yq -e '.services.mitmproxy.command | contains("anticomp=true")' "$proxy_compose"
+	yq -e '.services.mitmproxy.command | contains("timeout_read=300")' "$proxy_compose"
+	yq -e '.services.mitmproxy.command | contains("/scripts/mitmproxy_addon_claude.py")' "$proxy_compose"
+	yq -e '.services.mitmproxy | has("ports") | not' "$proxy_compose"
+}
+
+@test "set_proxy_tui_mode keeps cursor addon path" {
+	local proxy_compose="$BATS_TEST_TMPDIR/compose-proxy-cursor.yml"
+	cat >"$proxy_compose" <<'YAML'
+services:
+  mitmproxy:
+    command: mitmweb --mode wireguard --set http2=true --set stream_large_bodies=1m --set connection_strategy=lazy --set anticomp=true --set timeout_read=300 -s /scripts/mitmproxy_addon_cursor.py
+    ports:
+      - "8081"
+YAML
+
+	set_proxy_tui_mode "$proxy_compose"
+
+	run yq -r '.services.mitmproxy.command' "$proxy_compose"
+	assert_output "mitmdump --mode wireguard --set http2=true --set stream_large_bodies=1m --set connection_strategy=lazy --set anticomp=true --set timeout_read=300 -s /scripts/mitmproxy_addon_cursor.py"
+	yq -e '.services.mitmproxy.command | contains("/scripts/mitmproxy_addon_cursor.py")' "$proxy_compose"
+}

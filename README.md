@@ -293,7 +293,7 @@ Each rule has:
 `sandcat init` creates two settings files automatically:
 
 - **User settings** (`~/.config/sandcat/settings.json`) — allows full access to
-  GitHub and Anthropic/Claude-compatible hosts, with empty API key placeholders. This is a
+  GitHub and Anthropic/Claude, with empty API key placeholders. This is a
   liberal default: the agent can read arbitrary GitHub content (prompt injection
   vector) and push data (exfiltration vector).
 - **Project settings** (`.sandcat/settings.json`) — allows all GET traffic to
@@ -484,7 +484,20 @@ place.
 
 Cursor CLI support is available via `sandcat init --agent cursor`.
 
-- The current template uses temporary compatibility defaults for auth/network.
+- The current template uses temporary compatibility defaults for auth/network:
+  - **Auth passthrough via placeholder substitution.** The container sees only
+    `SANDCAT_PLACEHOLDER_CURSOR_API_KEY`; the real `CURSOR_API_KEY` is injected
+    by the mitmproxy addon only for allowed Cursor hosts.
+  - **HTTP/1 compatibility bootstrap.** On startup, Sandcat forces
+    `.network.useHttp1ForAgent = true` in Cursor CLI config to avoid known
+    proxy/TLS instability with HTTP/2 streaming through mitmproxy.
+  - **Proxy command defaults tuned for Cursor.** The generated proxy config uses
+    the Cursor addon and keeps mitmproxy HTTP/2 enabled (`http2=true`) (plus
+    streaming-safe mitmproxy
+    flags such as `stream_large_bodies=1m`, `connection_strategy=lazy`,
+    `anticomp=true`, and `timeout_read=300`).
+  These defaults are conservative and may be relaxed when Cursor proxy behavior
+  is consistently stable across environments.
 - Use `CURSOR_API_KEY` in your user settings for Cursor authentication.
 - On container startup, Sandcat writes
   `.network.useHttp1ForAgent = true` to

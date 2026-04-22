@@ -1,7 +1,7 @@
 """
 mitmproxy addon: network access rules and secret substitution.
 
-Loaded via: mitmweb -s /scripts/mitmproxy_addon.py
+Loaded via: mitmweb -s /scripts/mitmproxy_addon_claude.py
 
 On startup, reads settings from up to three layers (lowest to highest
 precedence): user (~/.config/sandcat/settings.json), project

@@ -110,8 +110,7 @@ customize_agent_templates() {
 	case "$agent" in
 		cursor)
 			mitm_addon_file="mitmproxy_addon_cursor.py"
-			# Cursor CLI often runs in HTTP/1 mode when proxied.
-			mitm_http2="false"
+			mitm_http2="true"
 			;;
 		claude|*)
 			mitm_addon_file="mitmproxy_addon_claude.py"

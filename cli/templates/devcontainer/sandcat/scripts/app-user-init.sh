@@ -6,8 +6,8 @@
 #
 set -e
 
-# su -m preserves the caller's environment (including HOME=/root).
-# Override HOME so git config and other tools write to the correct location.
+# app-init uses `su - vscode` (login shell). Keep HOME explicit so git config
+# and related tools always write to the expected location.
 export HOME="/home/vscode"
 
 if [ -n "${GIT_USER_NAME:-}" ]; then
