@@ -424,8 +424,10 @@ restart-proxy` after changing 1Password items.
 ### How it works internally
 
 1. The mitmproxy container mounts `~/.config/sandcat/settings.json` (read-only)
-   and the project's `.sandcat/` directory (read-only) alongside the
-   `mitmproxy_addon.py` addon script.
+   and the project's `.sandcat/` directory (read-only) alongside the addon
+   script. The addon comes in two agent-specific variants
+   (`mitmproxy_addon_claude.py`, `mitmproxy_addon_cursor.py`) that share their
+   common logic via the `mitmproxy_addon_common.py` library.
 2. On startup, the addon reads all available settings files (user, project,
    local), merges them according to the precedence rules above, and writes
    `sandcat.env` to the `mitmproxy-config` shared volume

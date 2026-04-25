@@ -29,6 +29,7 @@ services:
     volumes:
       - mitmproxy-config:/home/mitmproxy/.mitmproxy
       - ./scripts/__AGENT_MITM_ADDON__:/scripts/__AGENT_MITM_ADDON__:ro
+      - ./scripts/mitmproxy_addon_common.py:/scripts/mitmproxy_addon_common.py:ro
       - ~/.config/sandcat/settings.json:/config/settings.json:ro
     healthcheck:
       test: ["CMD", "sh", "-c", "test -f /home/mitmproxy/.mitmproxy/wireguard.conf && test -f /home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem"]

@@ -1,5 +1,17 @@
-"""Unit tests for mitmproxy-addon.py — no mitmproxy daemon needed."""
+"""Unit tests for the sandcat mitmproxy addons — no mitmproxy daemon needed.
 
+This file covers:
+
+  - The shared :mod:`mitmproxy_addon_common` library (network rules, settings
+    merging, shell escaping, op:// resolution, env file generation).
+  - Both agent variants — :mod:`mitmproxy_addon_claude` and
+    :mod:`mitmproxy_addon_cursor` — by parameterising shared behaviour over
+    the two ``SandcatAddon`` classes.
+  - Cursor-specific behaviour: Cursor Connect streaming, ``Authorization``
+    header normalisation, Basic Auth substitution, secret value normalisation.
+"""
+
+import importlib
 import json
 import os
 import sys
@@ -8,13 +20,12 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from unittest.mock import MagicMock, patch
 
-# Allow importing mitmproxy_addon from the templates directory.
-_SCRIPTS_DIR = str(Path(__file__).resolve().parents[2] / "templates" / "devcontainer" / "sandcat" / "scripts")
-sys.path.insert(0, _SCRIPTS_DIR)
-
 import pytest
 
-# Stub out mitmproxy imports so tests run without installing mitmproxy
+# ---------------------------------------------------------------------------
+# mitmproxy stubs — install BEFORE importing the addon modules.
+# ---------------------------------------------------------------------------
+
 _ctx = MagicMock()
 _http = types.ModuleType("mitmproxy.http")
 _dns = types.ModuleType("mitmproxy.dns")
@@ -86,15 +97,35 @@ sys.modules["mitmproxy"].ctx = _ctx
 sys.modules["mitmproxy"].http = _http
 sys.modules["mitmproxy"].dns = _dns
 
-# Import after mitmproxy stubs are installed in sys.modules above.
-import importlib
+# Allow importing the addon modules from the templates directory.
+_SCRIPTS_DIR = str(
+    Path(__file__).resolve().parents[2] / "templates" / "devcontainer" / "sandcat" / "scripts"
+)
+sys.path.insert(0, _SCRIPTS_DIR)
 
-from mitmproxy_addon import SandcatAddon, SETTINGS_PATHS  # noqa: E402
+# Import after stubs are in place.
+common = importlib.import_module("mitmproxy_addon_common")
+claude_mod = importlib.import_module("mitmproxy_addon_claude")
+cursor_mod = importlib.import_module("mitmproxy_addon_cursor")
 
-# Cursor devcontainer uses `mitmproxy_addon_cursor.py` (no CURSOR-API-KEY injection).
-_mitm_cursor = importlib.import_module("mitmproxy_addon_cursor")
-CursorSandcatAddon = _mitm_cursor.SandcatAddon
+ClaudeAddon = claude_mod.SandcatAddon
+CursorAddon = cursor_mod.SandcatAddon
+BaseAddon = common.SandcatAddon
 
+# Patch targets all live in the shared library — both agent variants inherit
+# their settings/secret/network code from the base class defined there.
+_COMMON = "mitmproxy_addon_common"
+
+# Parameter set for tests that should pass for both agent variants.
+ADDONS = [
+    pytest.param(ClaudeAddon, id="claude"),
+    pytest.param(CursorAddon, id="cursor"),
+]
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def _make_flow(method="GET", host="example.com", url=None, headers=None, content=None):
     flow = MagicMock()
@@ -120,41 +151,42 @@ def _make_dns_flow(name="example.com"):
 
 
 # ---------------------------------------------------------------------------
-# Network rules
+# Network rules — shared logic, parameterised over both variants.
 # ---------------------------------------------------------------------------
 
+@pytest.mark.parametrize("addon_cls", ADDONS)
 class TestNetworkRules:
-    def test_first_match_wins_allow_before_deny(self):
-        addon = SandcatAddon()
+    def test_first_match_wins_allow_before_deny(self, addon_cls):
+        addon = addon_cls()
         addon.network_rules = [
             {"action": "allow", "host": "*"},
             {"action": "deny", "host": "*"},
         ]
         assert addon._is_request_allowed("GET", "example.com") is True
 
-    def test_first_match_wins_deny_before_allow(self):
-        addon = SandcatAddon()
+    def test_first_match_wins_deny_before_allow(self, addon_cls):
+        addon = addon_cls()
         addon.network_rules = [
             {"action": "deny", "host": "*"},
             {"action": "allow", "host": "*"},
         ]
         assert addon._is_request_allowed("GET", "example.com") is False
 
-    def test_default_deny_on_no_match(self):
-        addon = SandcatAddon()
+    def test_default_deny_on_no_match(self, addon_cls):
+        addon = addon_cls()
         addon.network_rules = []
         assert addon._is_request_allowed("GET", "example.com") is False
 
-    def test_method_specific_rule(self):
-        addon = SandcatAddon()
+    def test_method_specific_rule(self, addon_cls):
+        addon = addon_cls()
         addon.network_rules = [
             {"action": "allow", "host": "*", "method": "GET"},
         ]
         assert addon._is_request_allowed("GET", "example.com") is True
         assert addon._is_request_allowed("POST", "example.com") is False
 
-    def test_method_omitted_matches_any(self):
-        addon = SandcatAddon()
+    def test_method_omitted_matches_any(self, addon_cls):
+        addon = addon_cls()
         addon.network_rules = [
             {"action": "allow", "host": "*"},
         ]
@@ -162,16 +194,16 @@ class TestNetworkRules:
         assert addon._is_request_allowed("POST", "example.com") is True
         assert addon._is_request_allowed("PUT", "example.com") is True
 
-    def test_host_glob_pattern(self):
-        addon = SandcatAddon()
+    def test_host_glob_pattern(self, addon_cls):
+        addon = addon_cls()
         addon.network_rules = [
             {"action": "allow", "host": "*.github.com"},
         ]
         assert addon._is_request_allowed("GET", "api.github.com") is True
         assert addon._is_request_allowed("GET", "example.com") is False
 
-    def test_full_ruleset_from_plan(self):
-        addon = SandcatAddon()
+    def test_full_ruleset_from_plan(self, addon_cls):
+        addon = addon_cls()
         addon.network_rules = [
             {"action": "allow", "host": "*", "method": "GET"},
             {"action": "allow", "host": "*.github.com", "method": "POST"},
@@ -187,22 +219,22 @@ class TestNetworkRules:
         # PUT anything → allowed (rule 4)
         assert addon._is_request_allowed("PUT", "example.com") is True
 
-    def test_method_matching_is_case_insensitive(self):
-        addon = SandcatAddon()
+    def test_method_matching_is_case_insensitive(self, addon_cls):
+        addon = addon_cls()
         addon.network_rules = [
             {"action": "allow", "host": "*", "method": "get"},
         ]
         assert addon._is_request_allowed("GET", "example.com") is True
 
-    def test_none_method_bypasses_method_check(self):
-        addon = SandcatAddon()
+    def test_none_method_bypasses_method_check(self, addon_cls):
+        addon = addon_cls()
         addon.network_rules = [
             {"action": "allow", "host": "*", "method": "GET"},
         ]
         assert addon._is_request_allowed(None, "example.com") is True
 
-    def test_host_matching_is_case_insensitive(self):
-        addon = SandcatAddon()
+    def test_host_matching_is_case_insensitive(self, addon_cls):
+        addon = addon_cls()
         addon.network_rules = [
             {"action": "deny", "host": "evil.com"},
             {"action": "allow", "host": "*"},
@@ -210,15 +242,15 @@ class TestNetworkRules:
         assert addon._is_request_allowed("GET", "Evil.COM") is False
         assert addon._is_request_allowed("GET", "EVIL.COM") is False
 
-    def test_rule_host_pattern_case_insensitive(self):
-        addon = SandcatAddon()
+    def test_rule_host_pattern_case_insensitive(self, addon_cls):
+        addon = addon_cls()
         addon.network_rules = [
             {"action": "allow", "host": "*.GitHub.COM"},
         ]
         assert addon._is_request_allowed("GET", "api.github.com") is True
 
-    def test_dns_trailing_dot_stripped(self):
-        addon = SandcatAddon()
+    def test_dns_trailing_dot_stripped(self, addon_cls):
+        addon = addon_cls()
         addon.network_rules = [
             {"action": "allow", "host": "*.github.com"},
         ]
@@ -227,12 +259,14 @@ class TestNetworkRules:
 
 
 # ---------------------------------------------------------------------------
-# Secret substitution
+# Secret substitution — shared logic, parameterised over both variants.
 # ---------------------------------------------------------------------------
 
+@pytest.mark.parametrize("addon_cls", ADDONS)
 class TestSecretSubstitution:
-    def _make_addon_with_secrets(self):
-        addon = SandcatAddon()
+    @staticmethod
+    def _make_addon(addon_cls):
+        addon = addon_cls()
         addon.network_rules = [{"action": "allow", "host": "*"}]
         addon.secrets = {
             "API_KEY": {
@@ -243,8 +277,8 @@ class TestSecretSubstitution:
         }
         return addon
 
-    def test_placeholder_replaced_in_header(self):
-        addon = self._make_addon_with_secrets()
+    def test_placeholder_replaced_in_header(self, addon_cls):
+        addon = self._make_addon(addon_cls)
         flow = _make_flow(
             host="api.example.com",
             headers={"Authorization": "Bearer SANDCAT_PLACEHOLDER_API_KEY"},
@@ -253,19 +287,22 @@ class TestSecretSubstitution:
         assert flow.response is None
         assert flow.request.headers["Authorization"] == "Bearer real-secret-value"
 
-    def test_placeholder_replaced_in_body(self):
-        addon = self._make_addon_with_secrets()
+    def test_placeholder_replaced_in_body(self, addon_cls):
+        addon = self._make_addon(addon_cls)
+        # Cursor gates body substitution on a textual content-type; provide one
+        # so the assertion holds for both variants.
         flow = _make_flow(
             method="POST",
             host="api.example.com",
+            headers={"content-type": "application/json"},
             content=b'{"key": "SANDCAT_PLACEHOLDER_API_KEY"}',
         )
         addon.request(flow)
         assert flow.response is None
         assert b"real-secret-value" in flow.request.content
 
-    def test_placeholder_replaced_in_url(self):
-        addon = self._make_addon_with_secrets()
+    def test_placeholder_replaced_in_url(self, addon_cls):
+        addon = self._make_addon(addon_cls)
         flow = _make_flow(
             host="api.example.com",
             url="https://api.example.com/?token=SANDCAT_PLACEHOLDER_API_KEY",
@@ -274,15 +311,15 @@ class TestSecretSubstitution:
         assert flow.response is None
         assert "real-secret-value" in flow.request.url
 
-    def test_no_op_when_placeholder_absent(self):
-        addon = self._make_addon_with_secrets()
+    def test_no_op_when_placeholder_absent(self, addon_cls):
+        addon = self._make_addon(addon_cls)
         flow = _make_flow(host="api.example.com")
         addon.request(flow)
         assert flow.response is None
         assert "real-secret-value" not in flow.request.url
 
-    def test_leak_detection_blocks_disallowed_host(self):
-        addon = self._make_addon_with_secrets()
+    def test_leak_detection_blocks_disallowed_host(self, addon_cls):
+        addon = self._make_addon(addon_cls)
         flow = _make_flow(
             host="evil.com",
             headers={"Authorization": "Bearer SANDCAT_PLACEHOLDER_API_KEY"},
@@ -292,9 +329,66 @@ class TestSecretSubstitution:
         assert flow.response["status"] == 403
 
 
+# ---------------------------------------------------------------------------
+# Body substitution behaviour that differs between variants:
+#   - Claude: body substitution is unconditional (no content-type check).
+#   - Cursor: body substitution requires a textual content-type.
+# ---------------------------------------------------------------------------
+
+class TestBodySubstitutionContentTypeGate:
+    @staticmethod
+    def _make_addon(addon_cls):
+        addon = addon_cls()
+        addon.network_rules = [{"action": "allow", "host": "*"}]
+        addon.secrets = {
+            "API_KEY": {
+                "value": "real-secret",
+                "hosts": ["api.example.com"],
+                "placeholder": "SANDCAT_PLACEHOLDER_API_KEY",
+            }
+        }
+        return addon
+
+    def test_claude_substitutes_body_without_content_type(self):
+        addon = self._make_addon(ClaudeAddon)
+        flow = _make_flow(
+            method="POST",
+            host="api.example.com",
+            content=b"SANDCAT_PLACEHOLDER_API_KEY",
+        )
+        addon.request(flow)
+        assert flow.request.content == b"real-secret"
+
+    def test_cursor_skips_body_without_textual_content_type(self):
+        addon = self._make_addon(CursorAddon)
+        flow = _make_flow(
+            method="POST",
+            host="api.example.com",
+            content=b"SANDCAT_PLACEHOLDER_API_KEY",
+        )
+        addon.request(flow)
+        assert flow.request.content == b"SANDCAT_PLACEHOLDER_API_KEY"
+
+    def test_cursor_substitutes_body_for_json(self):
+        addon = self._make_addon(CursorAddon)
+        flow = _make_flow(
+            method="POST",
+            host="api.example.com",
+            headers={"content-type": "application/json"},
+            content=b"SANDCAT_PLACEHOLDER_API_KEY",
+        )
+        addon.request(flow)
+        assert flow.request.content == b"real-secret"
+
+
+# ---------------------------------------------------------------------------
+# Cursor-specific: streaming traffic stays opaque.
+# ---------------------------------------------------------------------------
+
 class TestCursorStreaming:
-    def _make_addon_with_cursor_key(self):
-        addon = CursorSandcatAddon()
+    @staticmethod
+    def _make_addon():
+        addon = CursorAddon()
         addon.network_rules = [{"action": "allow", "host": "*"}]
         addon.secrets = {
             "CURSOR_API_KEY": {
@@ -305,9 +399,8 @@ class TestCursorStreaming:
         }
         return addon
 
-    def test_cursor_streaming_sets_stream_and_identity_encoding(self):
-        """Cursor template does not inject CURSOR-API-KEY; use placeholders in Authorization instead."""
-        addon = self._make_addon_with_cursor_key()
+    def test_streaming_sets_stream_and_identity_encoding(self):
+        addon = self._make_addon()
         flow = _make_flow(
             method="POST",
             host="api2.cursor.sh",
@@ -319,11 +412,12 @@ class TestCursorStreaming:
         assert flow.response is None
         assert flow.request.stream is True
         assert flow.request.headers["accept-encoding"] == "identity"
+        # The Cursor template never injects CURSOR-API-KEY; placeholders go in Authorization.
         assert "CURSOR-API-KEY" not in flow.request.headers
         assert flow.request.content == b"\x00\x00\x00\x00&"
 
-    def test_cursor_streaming_does_not_touch_body_placeholders(self):
-        addon = self._make_addon_with_cursor_key()
+    def test_streaming_does_not_touch_body_placeholders(self):
+        addon = self._make_addon()
         flow = _make_flow(
             method="POST",
             host="api2.cursor.sh",
@@ -335,8 +429,8 @@ class TestCursorStreaming:
         assert flow.response is None
         assert flow.request.content == b"SANDCAT_PLACEHOLDER_CURSOR_API_KEY"
 
-    def test_cursor_streaming_substitutes_bearer_placeholder(self):
-        addon = self._make_addon_with_cursor_key()
+    def test_streaming_substitutes_bearer_placeholder(self):
+        addon = self._make_addon()
         flow = _make_flow(
             method="POST",
             host="api2.cursor.sh",
@@ -350,8 +444,8 @@ class TestCursorStreaming:
         assert flow.response is None
         assert flow.request.headers["authorization"] == "Bearer cursor-secret"
 
-    def test_cursor_streaming_response_is_marked_streaming(self):
-        addon = self._make_addon_with_cursor_key()
+    def test_streaming_response_is_marked_streaming(self):
+        addon = self._make_addon()
         flow = _make_flow(
             method="POST",
             host="api2.cursor.sh",
@@ -362,14 +456,218 @@ class TestCursorStreaming:
         addon.responseheaders(flow)
         assert flow.response.stream is True
 
+    def test_repository_service_path_is_streaming(self):
+        addon = self._make_addon()
+        flow = _make_flow(
+            method="POST",
+            host="api3.cursor.sh",
+            url="https://api3.cursor.sh/aiserver.v1.RepositoryService/Foo",
+        )
+        assert addon._is_streaming_request(flow) is True
+
+    def test_non_cursor_host_not_streaming(self):
+        addon = self._make_addon()
+        flow = _make_flow(
+            method="POST",
+            host="api.openai.com",
+            headers={"content-type": "application/connect+proto"},
+        )
+        assert addon._is_streaming_request(flow) is False
+
+    def test_cursor_host_without_streaming_indicator_not_streaming(self):
+        addon = self._make_addon()
+        flow = _make_flow(
+            method="GET",
+            host="cursor.com",
+            url="https://cursor.com/about",
+        )
+        assert addon._is_streaming_request(flow) is False
+
+    def test_claude_responseheaders_is_noop(self):
+        """Base behaviour: never touches the response stream flag."""
+        addon = ClaudeAddon()
+        flow = _make_flow(host="example.com")
+        flow.response = types.SimpleNamespace(stream=False)
+        addon.responseheaders(flow)
+        assert flow.response.stream is False
+
 
 # ---------------------------------------------------------------------------
-# Integration
+# Cursor-specific: Basic Auth substitution.
 # ---------------------------------------------------------------------------
 
+class TestCursorBasicAuth:
+    @staticmethod
+    def _make_addon():
+        addon = CursorAddon()
+        addon.network_rules = [{"action": "allow", "host": "*"}]
+        addon.secrets = {
+            "API_KEY": {
+                "value": "real-pass",
+                "hosts": ["api.example.com"],
+                "placeholder": "SANDCAT_PLACEHOLDER_API_KEY",
+            }
+        }
+        return addon
+
+    def test_basic_auth_placeholder_substituted(self):
+        import base64
+
+        encoded = base64.b64encode(b"user:SANDCAT_PLACEHOLDER_API_KEY").decode("ascii")
+        addon = self._make_addon()
+        flow = _make_flow(
+            host="api.example.com",
+            headers={"authorization": f"Basic {encoded}"},
+        )
+        addon.request(flow)
+        assert flow.response is None
+        assert flow.request.headers["authorization"].startswith("Basic ")
+        new_encoded = flow.request.headers["authorization"].split(" ", 1)[1]
+        assert base64.b64decode(new_encoded) == b"user:real-pass"
+
+    def test_basic_auth_no_placeholder_untouched(self):
+        import base64
+
+        encoded = base64.b64encode(b"user:plain-pass").decode("ascii")
+        addon = self._make_addon()
+        flow = _make_flow(
+            host="api.example.com",
+            headers={"authorization": f"Basic {encoded}"},
+        )
+        addon.request(flow)
+        assert flow.request.headers["authorization"] == f"Basic {encoded}"
+
+    def test_basic_auth_invalid_base64_returns_unchanged(self):
+        # Direct unit test of the helper: invalid base64 should not raise.
+        # "AAA" is missing padding and triggers binascii.Error.
+        _, replaced = CursorAddon._replace_placeholder_in_basic_auth(
+            "Basic AAA", "X", "Y"
+        )
+        assert replaced is False
+
+    def test_basic_auth_empty_payload_returns_unchanged(self):
+        # "Basic " with empty token short-circuits before decoding.
+        _, replaced = CursorAddon._replace_placeholder_in_basic_auth(
+            "Basic ", "X", "Y"
+        )
+        assert replaced is False
+
+    def test_basic_auth_non_basic_scheme_unchanged(self):
+        result, replaced = CursorAddon._replace_placeholder_in_basic_auth(
+            "Bearer abc", "P", "v"
+        )
+        assert replaced is False
+        assert result == "Bearer abc"
+
+    def test_claude_does_not_touch_basic_auth(self):
+        """Base addon never inspects Basic Auth payloads."""
+        import base64
+
+        encoded = base64.b64encode(b"user:SANDCAT_PLACEHOLDER_API_KEY").decode("ascii")
+        addon = ClaudeAddon()
+        addon.network_rules = [{"action": "allow", "host": "*"}]
+        addon.secrets = {
+            "API_KEY": {
+                "value": "real-pass",
+                "hosts": ["api.example.com"],
+                "placeholder": "SANDCAT_PLACEHOLDER_API_KEY",
+            }
+        }
+        flow = _make_flow(
+            host="api.example.com",
+            headers={"authorization": f"Basic {encoded}"},
+        )
+        addon.request(flow)
+        # Claude leaves the encoded payload untouched (placeholder hidden inside base64).
+        assert flow.request.headers["authorization"] == f"Basic {encoded}"
+
+
+# ---------------------------------------------------------------------------
+# Cursor-specific: Authorization header normalisation after substitution.
+# ---------------------------------------------------------------------------
+
+class TestCursorAuthorizationNormalization:
+    def test_bearer_token_trimmed(self):
+        addon = CursorAddon()
+        addon.network_rules = [{"action": "allow", "host": "*"}]
+        addon.secrets = {
+            "T": {
+                "value": "  real-token  ",
+                "hosts": ["api.example.com"],
+                "placeholder": "SANDCAT_PLACEHOLDER_T",
+            }
+        }
+        flow = _make_flow(
+            host="api.example.com",
+            headers={"authorization": "Bearer SANDCAT_PLACEHOLDER_T"},
+        )
+        addon.request(flow)
+        assert flow.request.headers["authorization"] == "Bearer real-token"
+
+    def test_bearer_scheme_case_preserved(self):
+        addon = CursorAddon()
+        # Direct hook test
+        assert (
+            addon._normalize_authorization_header("bearer  abc  ") == "bearer abc"
+        )
+        assert (
+            addon._normalize_authorization_header("BEARER abc") == "BEARER abc"
+        )
+
+    def test_non_bearer_passthrough_only_strips(self):
+        addon = CursorAddon()
+        assert addon._normalize_authorization_header("Basic abc==  ") == "Basic abc=="
+
+    def test_claude_does_not_trim_authorization(self):
+        addon = ClaudeAddon()
+        addon.network_rules = [{"action": "allow", "host": "*"}]
+        addon.secrets = {
+            "T": {
+                "value": " spacey ",
+                "hosts": ["api.example.com"],
+                "placeholder": "SANDCAT_PLACEHOLDER_T",
+            }
+        }
+        flow = _make_flow(
+            host="api.example.com",
+            headers={"authorization": "Bearer SANDCAT_PLACEHOLDER_T"},
+        )
+        addon.request(flow)
+        # Claude does no normalization — the leading/trailing spaces survive.
+        assert flow.request.headers["authorization"] == "Bearer  spacey "
+
+
+# ---------------------------------------------------------------------------
+# Cursor-specific: secret value normalization.
+# ---------------------------------------------------------------------------
+
+class TestCursorSecretNormalization:
+    def test_strips_whitespace(self):
+        assert CursorAddon._normalize_secret_value("  abc  ") == "abc"
+
+    def test_strips_bom(self):
+        assert CursorAddon._normalize_secret_value("\ufeffabc") == "abc"
+
+    def test_handles_none(self):
+        assert CursorAddon._normalize_secret_value(None) == ""
+
+    def test_handles_non_string(self):
+        assert CursorAddon._normalize_secret_value(123) == "123"
+
+    def test_claude_default_is_passthrough(self):
+        # Base/claude does not strip — values come through unchanged.
+        assert ClaudeAddon._normalize_secret_value("  abc  ") == "  abc  "
+        assert ClaudeAddon._normalize_secret_value(None) == ""
+
+
+# ---------------------------------------------------------------------------
+# Integration — request handler ordering.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("addon_cls", ADDONS)
 class TestIntegration:
-    def test_network_deny_blocks_before_substitution(self):
-        addon = SandcatAddon()
+    def test_network_deny_blocks_before_substitution(self, addon_cls):
+        addon = addon_cls()
         addon.network_rules = [{"action": "deny", "host": "*"}]
         addon.secrets = {
             "API_KEY": {
@@ -389,8 +687,8 @@ class TestIntegration:
         # Secret should NOT have been substituted
         assert flow.request.headers["Authorization"] == "Bearer SANDCAT_PLACEHOLDER_API_KEY"
 
-    def test_network_allow_plus_substitution(self):
-        addon = SandcatAddon()
+    def test_network_allow_plus_substitution(self, addon_cls):
+        addon = addon_cls()
         addon.network_rules = [{"action": "allow", "host": "*"}]
         addon.secrets = {
             "API_KEY": {
@@ -409,35 +707,36 @@ class TestIntegration:
 
 
 # ---------------------------------------------------------------------------
-# DNS proxy
+# DNS proxy — shared logic, parameterised over both variants.
 # ---------------------------------------------------------------------------
 
+@pytest.mark.parametrize("addon_cls", ADDONS)
 class TestDNSProxy:
-    def test_allowed_host_passes_through(self):
-        addon = SandcatAddon()
+    def test_allowed_host_passes_through(self, addon_cls):
+        addon = addon_cls()
         addon.network_rules = [{"action": "allow", "host": "*"}]
         flow = _make_dns_flow("example.com")
         addon.dns_request(flow)
         assert flow.response is None
 
-    def test_denied_host_returns_refused(self):
-        addon = SandcatAddon()
+    def test_denied_host_returns_refused(self, addon_cls):
+        addon = addon_cls()
         addon.network_rules = [{"action": "deny", "host": "*"}]
         flow = _make_dns_flow("example.com")
         addon.dns_request(flow)
         assert flow.response is not None
         assert flow.response["response_code"] == 5
 
-    def test_empty_questions_returns_refused(self):
-        addon = SandcatAddon()
+    def test_empty_questions_returns_refused(self, addon_cls):
+        addon = addon_cls()
         addon.network_rules = [{"action": "allow", "host": "*"}]
         flow = _make_dns_flow(name=None)
         addon.dns_request(flow)
         assert flow.response is not None
         assert flow.response["response_code"] == 5
 
-    def test_dns_trailing_dot_allowed(self):
-        addon = SandcatAddon()
+    def test_dns_trailing_dot_allowed(self, addon_cls):
+        addon = addon_cls()
         addon.network_rules = [{"action": "allow", "host": "*.github.com"}]
         flow = _make_dns_flow("api.github.com.")
         addon.dns_request(flow)
@@ -445,43 +744,42 @@ class TestDNSProxy:
 
 
 # ---------------------------------------------------------------------------
-# Config loading
+# Config loading — exercises the shared load() + write paths.
 # ---------------------------------------------------------------------------
 
+@pytest.mark.parametrize("addon_cls", ADDONS)
 class TestConfigLoading:
-    def test_missing_settings_file_disables_addon(self):
-        addon = SandcatAddon()
-        with patch("mitmproxy_addon.os.path.isfile", return_value=False):
+    def test_missing_settings_file_disables_addon(self, addon_cls):
+        addon = addon_cls()
+        with patch(f"{_COMMON}.os.path.isfile", return_value=False):
             addon.load(MagicMock())
         assert addon.env == {}
         assert addon.secrets == {}
         assert addon.network_rules == []
 
-    def test_missing_secrets_key_uses_empty(self, tmp_path):
+    def test_missing_secrets_key_uses_empty(self, addon_cls, tmp_path):
         settings = {"network": [{"action": "allow", "host": "*"}]}
         p = tmp_path / "settings.json"
         p.write_text(json.dumps(settings))
-        addon = SandcatAddon()
-        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
-             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(tmp_path / "sandcat.env")):
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(tmp_path / "sandcat.env")):
             addon.load(MagicMock())
         assert addon.secrets == {}
         assert len(addon.network_rules) == 1
 
-    def test_missing_network_key_uses_empty(self, tmp_path):
-        settings = {"secrets": {
-            "KEY": {"value": "v", "hosts": ["h.com"]}
-        }}
+    def test_missing_network_key_uses_empty(self, addon_cls, tmp_path):
+        settings = {"secrets": {"KEY": {"value": "v", "hosts": ["h.com"]}}}
         p = tmp_path / "settings.json"
         p.write_text(json.dumps(settings))
-        addon = SandcatAddon()
-        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
-             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(tmp_path / "sandcat.env")):
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(tmp_path / "sandcat.env")):
             addon.load(MagicMock())
         assert len(addon.secrets) == 1
         assert addon.network_rules == []
 
-    def test_placeholders_env_written_correctly(self, tmp_path):
+    def test_placeholders_env_written_correctly(self, addon_cls, tmp_path):
         settings = {"secrets": {
             "A": {"value": "va", "hosts": []},
             "B": {"value": "vb", "hosts": []},
@@ -489,15 +787,15 @@ class TestConfigLoading:
         p = tmp_path / "settings.json"
         p.write_text(json.dumps(settings))
         env_path = tmp_path / "sandcat.env"
-        addon = SandcatAddon()
-        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
-             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)):
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
             addon.load(MagicMock())
         content = env_path.read_text()
         assert 'export A="SANDCAT_PLACEHOLDER_A"' in content
         assert 'export B="SANDCAT_PLACEHOLDER_B"' in content
 
-    def test_env_vars_written_to_placeholders_env(self, tmp_path):
+    def test_env_vars_written_to_placeholders_env(self, addon_cls, tmp_path):
         settings = {
             "env": {"GIT_USER_NAME": "Alice", "GIT_USER_EMAIL": "alice@example.com"},
             "secrets": {"K": {"value": "v", "hosts": []}},
@@ -505,189 +803,207 @@ class TestConfigLoading:
         p = tmp_path / "settings.json"
         p.write_text(json.dumps(settings))
         env_path = tmp_path / "sandcat.env"
-        addon = SandcatAddon()
-        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
-             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)):
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
             addon.load(MagicMock())
         content = env_path.read_text()
         assert 'export GIT_USER_NAME="Alice"' in content
         assert 'export GIT_USER_EMAIL="alice@example.com"' in content
         assert 'export K="SANDCAT_PLACEHOLDER_K"' in content
 
-    def test_env_vars_partial(self, tmp_path):
+    def test_env_vars_partial(self, addon_cls, tmp_path):
         settings = {"env": {"EDITOR": "vim"}}
         p = tmp_path / "settings.json"
         p.write_text(json.dumps(settings))
         env_path = tmp_path / "sandcat.env"
-        addon = SandcatAddon()
-        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
-             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)):
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
             addon.load(MagicMock())
         content = env_path.read_text()
         assert 'export EDITOR="vim"' in content
 
-    def test_missing_env_section_omits_vars(self, tmp_path):
+    def test_missing_env_section_omits_vars(self, addon_cls, tmp_path):
         settings = {"secrets": {"K": {"value": "v", "hosts": []}}}
         p = tmp_path / "settings.json"
         p.write_text(json.dumps(settings))
         env_path = tmp_path / "sandcat.env"
-        addon = SandcatAddon()
-        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
-             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)):
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
             addon.load(MagicMock())
         content = env_path.read_text()
         assert content.startswith('export K=')
 
 
 # ---------------------------------------------------------------------------
-# Shell escaping
+# Shell escaping — applies regardless of variant.
 # ---------------------------------------------------------------------------
 
+@pytest.mark.parametrize("addon_cls", ADDONS)
 class TestShellEscaping:
-    def test_double_quotes_escaped(self, tmp_path):
+    def test_double_quotes_escaped(self, addon_cls, tmp_path):
         settings = {"env": {"X": 'val"ue'}}
         p = tmp_path / "settings.json"
         p.write_text(json.dumps(settings))
         env_path = tmp_path / "sandcat.env"
-        addon = SandcatAddon()
-        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
-             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)):
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
             addon.load(MagicMock())
         content = env_path.read_text()
         assert 'export X="val\\"ue"' in content
 
-    def test_backslashes_escaped(self, tmp_path):
+    def test_backslashes_escaped(self, addon_cls, tmp_path):
         settings = {"env": {"X": "a\\b"}}
         p = tmp_path / "settings.json"
         p.write_text(json.dumps(settings))
         env_path = tmp_path / "sandcat.env"
-        addon = SandcatAddon()
-        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
-             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)):
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
             addon.load(MagicMock())
         content = env_path.read_text()
         assert 'export X="a\\\\b"' in content
 
-    def test_dollar_and_backtick_escaped(self, tmp_path):
+    def test_dollar_and_backtick_escaped(self, addon_cls, tmp_path):
         settings = {"env": {"X": "$(rm -rf /)`cmd`"}}
         p = tmp_path / "settings.json"
         p.write_text(json.dumps(settings))
         env_path = tmp_path / "sandcat.env"
-        addon = SandcatAddon()
-        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
-             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)):
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
             addon.load(MagicMock())
         content = env_path.read_text()
         assert 'export X="\\$(rm -rf /)\\`cmd\\`"' in content
 
+
+class TestShellEscapingStaticHelpers:
+    """Static helpers live in the shared library; both variants reuse them."""
+
     def test_newlines_escaped(self):
-        assert SandcatAddon._shell_escape("line1\nline2") == "line1\\nline2"
+        assert BaseAddon._shell_escape("line1\nline2") == "line1\\nline2"
 
     def test_plain_values_unchanged(self):
-        assert SandcatAddon._shell_escape("hello world") == "hello world"
-        assert SandcatAddon._shell_escape("sk-ant-abc123") == "sk-ant-abc123"
+        assert BaseAddon._shell_escape("hello world") == "hello world"
+        assert BaseAddon._shell_escape("sk-ant-abc123") == "sk-ant-abc123"
+
+    def test_helpers_inherited_by_variants(self):
+        # Sanity: subclasses inherit the same helper from the base.
+        assert ClaudeAddon._shell_escape == BaseAddon._shell_escape
+        assert CursorAddon._shell_escape == BaseAddon._shell_escape
 
 
+# ---------------------------------------------------------------------------
+# Env var name validation (shared).
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("addon_cls", ADDONS)
 class TestEnvVarNameValidation:
-    def test_valid_names(self):
+    def test_valid_names(self, addon_cls):
         for name in ["FOO", "BAR_BAZ", "_PRIVATE", "a1b2"]:
-            SandcatAddon._validate_env_name(name)  # should not raise
+            addon_cls._validate_env_name(name)  # should not raise
 
-    def test_invalid_names(self):
+    def test_invalid_names(self, addon_cls):
         for name in ["1BAD", "FOO BAR", 'X"; curl evil.com #', "a-b", ""]:
             with pytest.raises(ValueError):
-                SandcatAddon._validate_env_name(name)
+                addon_cls._validate_env_name(name)
 
-    def test_invalid_env_name_blocks_write(self, tmp_path):
+    def test_invalid_env_name_blocks_write(self, addon_cls, tmp_path):
         settings = {"env": {'BAD NAME': "value"}}
         p = tmp_path / "settings.json"
         p.write_text(json.dumps(settings))
         env_path = tmp_path / "sandcat.env"
-        addon = SandcatAddon()
-        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
-             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)):
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
             with pytest.raises(ValueError):
                 addon.load(MagicMock())
 
-    def test_invalid_secret_name_blocks_write(self, tmp_path):
+    def test_invalid_secret_name_blocks_write(self, addon_cls, tmp_path):
         settings = {"secrets": {"BAD;NAME": {"value": "v", "hosts": []}}}
         p = tmp_path / "settings.json"
         p.write_text(json.dumps(settings))
         env_path = tmp_path / "sandcat.env"
-        addon = SandcatAddon()
-        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
-             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)):
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
             with pytest.raises(ValueError):
                 addon.load(MagicMock())
 
 
 # ---------------------------------------------------------------------------
-# 1Password secret resolution
+# 1Password secret resolution (shared classmethod).
 # ---------------------------------------------------------------------------
 
+@pytest.mark.parametrize("addon_cls", ADDONS)
 class TestOpSecretResolution:
-    def test_op_reference_resolved_via_subprocess(self):
+    def test_op_reference_resolved_via_subprocess(self, addon_cls):
         entry = {"op": "op://vault/item/field", "hosts": ["api.example.com"]}
-        with patch("mitmproxy_addon.subprocess.run") as mock_run:
+        with patch(f"{_COMMON}.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="secret-value\n", stderr="")
-            value = SandcatAddon._resolve_secret_value("KEY", entry)
+            value = addon_cls._resolve_secret_value("KEY", entry)
         assert value == "secret-value"
         mock_run.assert_called_once_with(
             ["op", "read", "op://vault/item/field"],
             capture_output=True, text=True, timeout=30,
         )
 
-    def test_value_field_still_works(self):
+    def test_value_field_still_works(self, addon_cls):
         entry = {"value": "plain-secret", "hosts": []}
-        value = SandcatAddon._resolve_secret_value("KEY", entry)
+        value = addon_cls._resolve_secret_value("KEY", entry)
         assert value == "plain-secret"
 
-    def test_both_value_and_op_raises(self):
+    def test_both_value_and_op_raises(self, addon_cls):
         entry = {"value": "x", "op": "op://vault/item/field", "hosts": []}
         with pytest.raises(ValueError, match="either 'value' or 'op'"):
-            SandcatAddon._resolve_secret_value("KEY", entry)
+            addon_cls._resolve_secret_value("KEY", entry)
 
-    def test_neither_value_nor_op_raises(self):
+    def test_neither_value_nor_op_raises(self, addon_cls):
         entry = {"hosts": ["example.com"]}
         with pytest.raises(ValueError, match="must specify either"):
-            SandcatAddon._resolve_secret_value("KEY", entry)
+            addon_cls._resolve_secret_value("KEY", entry)
 
-    def test_op_without_prefix_raises(self):
+    def test_op_without_prefix_raises(self, addon_cls):
         entry = {"op": "vault/item/field", "hosts": []}
         with pytest.raises(ValueError, match="must start with 'op://'"):
-            SandcatAddon._resolve_secret_value("KEY", entry)
+            addon_cls._resolve_secret_value("KEY", entry)
 
-    def test_op_cli_not_found_raises(self):
+    def test_op_cli_not_found_raises(self, addon_cls):
         entry = {"op": "op://vault/item/field", "hosts": []}
-        with patch("mitmproxy_addon.subprocess.run", side_effect=FileNotFoundError):
+        with patch(f"{_COMMON}.subprocess.run", side_effect=FileNotFoundError):
             with pytest.raises(RuntimeError, match="'op' CLI not found"):
-                SandcatAddon._resolve_secret_value("KEY", entry)
+                addon_cls._resolve_secret_value("KEY", entry)
 
-    def test_op_cli_failure_raises(self):
+    def test_op_cli_failure_raises(self, addon_cls):
         entry = {"op": "op://vault/item/field", "hosts": []}
-        with patch("mitmproxy_addon.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="authorization required")
+        with patch(f"{_COMMON}.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=1, stdout="", stderr="authorization required"
+            )
             with pytest.raises(RuntimeError, match="authorization required"):
-                SandcatAddon._resolve_secret_value("KEY", entry)
+                addon_cls._resolve_secret_value("KEY", entry)
 
-    def test_op_reference_in_full_load(self, tmp_path):
+    def test_op_reference_in_full_load(self, addon_cls, tmp_path):
         settings = {"secrets": {
             "API_KEY": {"op": "op://vault/item/field", "hosts": ["api.example.com"]},
         }}
         p = tmp_path / "settings.json"
         p.write_text(json.dumps(settings))
         env_path = tmp_path / "sandcat.env"
-        addon = SandcatAddon()
-        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
-             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)), \
-             patch("mitmproxy_addon.subprocess.run") as mock_run:
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="resolved-secret\n", stderr="")
             addon.load(MagicMock())
         assert addon.secrets["API_KEY"]["value"] == "resolved-secret"
         content = env_path.read_text()
         assert 'export API_KEY="SANDCAT_PLACEHOLDER_API_KEY"' in content
 
-    def test_op_failure_logs_warning_and_continues(self, tmp_path):
+    def test_op_failure_logs_warning_and_continues(self, addon_cls, tmp_path):
         settings = {"secrets": {
             "BAD": {"op": "op://vault/item/field", "hosts": []},
             "GOOD": {"value": "ok", "hosts": []},
@@ -695,62 +1011,62 @@ class TestOpSecretResolution:
         p = tmp_path / "settings.json"
         p.write_text(json.dumps(settings))
         env_path = tmp_path / "sandcat.env"
-        addon = SandcatAddon()
-        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
-             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)), \
-             patch("mitmproxy_addon.subprocess.run") as mock_run:
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="vault not found")
             addon.load(MagicMock())
         assert addon.secrets["BAD"]["value"] == ""
         assert addon.secrets["GOOD"]["value"] == "ok"
 
-    def test_op_token_from_settings(self, tmp_path, monkeypatch):
+    def test_op_token_from_settings(self, addon_cls, tmp_path, monkeypatch):
         monkeypatch.delenv("OP_SERVICE_ACCOUNT_TOKEN", raising=False)
         settings = {
             "op_service_account_token": "ops_test_token",
-            "secrets": {
-                "KEY": {"op": "op://vault/item/field", "hosts": []},
-            },
+            "secrets": {"KEY": {"op": "op://vault/item/field", "hosts": []}},
         }
         p = tmp_path / "settings.json"
         p.write_text(json.dumps(settings))
         env_path = tmp_path / "sandcat.env"
-        addon = SandcatAddon()
-        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(p)]), \
-             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)), \
-             patch("mitmproxy_addon.subprocess.run") as mock_run:
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)), \
+             patch(f"{_COMMON}.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="secret\n", stderr="")
             addon.load(MagicMock())
         assert os.environ.get("OP_SERVICE_ACCOUNT_TOKEN") == "ops_test_token"
         monkeypatch.delenv("OP_SERVICE_ACCOUNT_TOKEN", raising=False)
 
-    def test_op_token_env_var_takes_precedence(self, monkeypatch):
+    def test_op_token_env_var_takes_precedence(self, addon_cls, monkeypatch):
         monkeypatch.setenv("OP_SERVICE_ACCOUNT_TOKEN", "from_env")
-        SandcatAddon._configure_op_token("from_settings")
+        addon_cls._configure_op_token("from_settings")
         assert os.environ["OP_SERVICE_ACCOUNT_TOKEN"] == "from_env"
 
-    def test_op_token_not_set_when_empty(self, monkeypatch):
+    def test_op_token_not_set_when_empty(self, addon_cls, monkeypatch):
         monkeypatch.delenv("OP_SERVICE_ACCOUNT_TOKEN", raising=False)
-        SandcatAddon._configure_op_token("")
+        addon_cls._configure_op_token("")
         assert "OP_SERVICE_ACCOUNT_TOKEN" not in os.environ
 
-    def test_op_token_not_set_when_none(self, monkeypatch):
+    def test_op_token_not_set_when_none(self, addon_cls, monkeypatch):
         monkeypatch.delenv("OP_SERVICE_ACCOUNT_TOKEN", raising=False)
-        SandcatAddon._configure_op_token(None)
+        addon_cls._configure_op_token(None)
         assert "OP_SERVICE_ACCOUNT_TOKEN" not in os.environ
 
 
 # ---------------------------------------------------------------------------
-# Settings merging
+# Settings merging — pure shared logic on the base class.
 # ---------------------------------------------------------------------------
 
 class TestSettingsMerging:
+    """Static merge helper lives in the shared library."""
+
     def test_env_higher_precedence_wins(self):
         layers = [
             {"env": {"A": "user", "B": "user"}},
             {"env": {"B": "project"}},
         ]
-        merged = SandcatAddon._merge_settings(layers)
+        merged = BaseAddon._merge_settings(layers)
         assert merged["env"] == {"A": "user", "B": "project"}
 
     def test_secrets_higher_precedence_wins(self):
@@ -763,7 +1079,7 @@ class TestSettingsMerging:
                 "KEY2": {"value": "v2-project", "hosts": ["c.com"]},
             }},
         ]
-        merged = SandcatAddon._merge_settings(layers)
+        merged = BaseAddon._merge_settings(layers)
         assert merged["secrets"]["KEY1"]["value"] == "v1-user"
         assert merged["secrets"]["KEY2"]["value"] == "v2-project"
         assert merged["secrets"]["KEY2"]["hosts"] == ["c.com"]
@@ -774,7 +1090,7 @@ class TestSettingsMerging:
             {"network": [{"action": "allow", "host": "project.com"}]},
             {"network": [{"action": "deny", "host": "local.com"}]},
         ]
-        merged = SandcatAddon._merge_settings(layers)
+        merged = BaseAddon._merge_settings(layers)
         assert merged["network"] == [
             {"action": "deny", "host": "local.com"},
             {"action": "allow", "host": "project.com"},
@@ -786,7 +1102,7 @@ class TestSettingsMerging:
             {"env": {"A": "1"}},
             {"network": [{"action": "allow", "host": "*"}]},
         ]
-        merged = SandcatAddon._merge_settings(layers)
+        merged = BaseAddon._merge_settings(layers)
         assert merged["env"] == {"A": "1"}
         assert merged["secrets"] == {}
         assert merged["network"] == [{"action": "allow", "host": "*"}]
@@ -797,7 +1113,7 @@ class TestSettingsMerging:
             {"op_service_account_token": "user_token"},
             {"op_service_account_token": "project_token"},
         ]
-        merged = SandcatAddon._merge_settings(layers)
+        merged = BaseAddon._merge_settings(layers)
         assert merged["op_service_account_token"] == "project_token"
 
     def test_op_token_skips_empty(self):
@@ -805,45 +1121,195 @@ class TestSettingsMerging:
             {"op_service_account_token": "user_token"},
             {"op_service_account_token": ""},
         ]
-        merged = SandcatAddon._merge_settings(layers)
+        merged = BaseAddon._merge_settings(layers)
         assert merged["op_service_account_token"] == "user_token"
 
     def test_op_token_absent(self):
         layers = [{"env": {"A": "1"}}]
-        merged = SandcatAddon._merge_settings(layers)
+        merged = BaseAddon._merge_settings(layers)
         assert merged["op_service_account_token"] is None
 
     def test_empty_layers_list(self):
-        merged = SandcatAddon._merge_settings([])
-        assert merged == {"env": {}, "secrets": {}, "network": [],
-                          "op_service_account_token": None}
+        merged = BaseAddon._merge_settings([])
+        assert merged == {
+            "env": {},
+            "secrets": {},
+            "network": [],
+            "op_service_account_token": None,
+        }
 
 
+# ---------------------------------------------------------------------------
+# Multi-file loading — exercises the shared layer-reading loop.
+# ---------------------------------------------------------------------------
 
+@pytest.mark.parametrize("addon_cls", ADDONS)
 class TestMultiFileLoading:
-    def test_loads_multiple_settings_files(self, tmp_path):
-        user_settings = {"env": {"A": "user"}, "network": [{"action": "allow", "host": "user.com"}]}
+    def test_loads_multiple_settings_files(self, addon_cls, tmp_path):
+        user_settings = {
+            "env": {"A": "user"},
+            "network": [{"action": "allow", "host": "user.com"}],
+        }
         project_settings = {"env": {"A": "project", "B": "project"}}
         (tmp_path / "user.json").write_text(json.dumps(user_settings))
         (tmp_path / "project.json").write_text(json.dumps(project_settings))
         env_path = tmp_path / "sandcat.env"
-        addon = SandcatAddon()
-        with patch("mitmproxy_addon.SETTINGS_PATHS", [str(tmp_path / "user.json"), str(tmp_path / "project.json")]), \
-             patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)):
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS",
+                   [str(tmp_path / "user.json"), str(tmp_path / "project.json")]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
             addon.load(MagicMock())
         assert addon.env == {"A": "project", "B": "project"}
         assert addon.network_rules == [{"action": "allow", "host": "user.com"}]
 
-    def test_skips_missing_files(self, tmp_path):
+    def test_skips_missing_files(self, addon_cls, tmp_path):
         user_settings = {"env": {"A": "user"}}
         (tmp_path / "user.json").write_text(json.dumps(user_settings))
         env_path = tmp_path / "sandcat.env"
-        addon = SandcatAddon()
-        with patch("mitmproxy_addon.SETTINGS_PATHS", [
+        addon = addon_cls()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [
             str(tmp_path / "user.json"),
             str(tmp_path / "missing.json"),
             str(tmp_path / "also-missing.json"),
-        ]), patch("mitmproxy_addon.SANDCAT_ENV_PATH", str(env_path)):
+        ]), patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
             addon.load(MagicMock())
         assert addon.env == {"A": "user"}
 
+
+# ---------------------------------------------------------------------------
+# Shared library helpers — purely unit tests on the base class.
+# ---------------------------------------------------------------------------
+
+class TestCommonHelpers:
+    def test_is_truthy_true_values(self):
+        for v in ["1", "true", "TRUE", "yes", "ON", " on ", True]:
+            assert BaseAddon._is_truthy(v) is True
+
+    def test_is_truthy_false_values(self):
+        for v in ["0", "false", "no", "off", "", None, False]:
+            assert BaseAddon._is_truthy(v) is False
+
+    def test_default_is_textual_content_type_returns_true(self):
+        # Base default: any content type passes.
+        assert BaseAddon._is_textual_content_type("") is True
+        assert BaseAddon._is_textual_content_type(None) is True
+        assert BaseAddon._is_textual_content_type("application/octet-stream") is True
+
+    def test_default_is_streaming_request_false(self):
+        addon = BaseAddon()
+        flow = _make_flow(host="example.com")
+        assert addon._is_streaming_request(flow) is False
+
+    def test_default_basic_auth_helpers_are_inert(self):
+        assert BaseAddon._basic_auth_contains_placeholder("Basic xxx", "P") is False
+        assert BaseAddon._replace_placeholder_in_basic_auth("Basic xxx", "P", "v") == ("Basic xxx", False)
+
+    def test_default_normalize_authorization_header_is_passthrough(self):
+        addon = BaseAddon()
+        assert addon._normalize_authorization_header("Bearer  abc  ") == "Bearer  abc  "
+
+    def test_auth_debug_summary_missing(self):
+        assert BaseAddon._auth_debug_summary(None).startswith("authorization=<missing>")
+        assert BaseAddon._auth_debug_summary("").startswith("authorization=<missing>")
+
+    def test_auth_debug_summary_bearer_format(self):
+        summary = BaseAddon._auth_debug_summary("Bearer abc")
+        assert summary.startswith("bearer len=3")
+        assert "sha256_12=" in summary
+
+    def test_auth_debug_summary_basic_format(self):
+        import base64
+
+        encoded = base64.b64encode(b"user:pass").decode("ascii")
+        summary = BaseAddon._auth_debug_summary(f"Basic {encoded}")
+        assert summary.startswith("basic decoded_len=9")
+
+    def test_auth_debug_summary_other(self):
+        assert BaseAddon._auth_debug_summary("Digest xyz").startswith("other len=")
+
+
+# ---------------------------------------------------------------------------
+# Cursor textual content-type gate (direct unit tests).
+# ---------------------------------------------------------------------------
+
+class TestCursorTextualContentType:
+    @pytest.mark.parametrize("ct", [
+        "application/json",
+        "application/json; charset=utf-8",
+        "text/plain",
+        "text/html",
+        "application/x-www-form-urlencoded",
+        "application/vnd.api+json",
+        "application/atom+xml",
+        "application/javascript",
+        "application/graphql",
+        "application/xml",
+    ])
+    def test_textual_types(self, ct):
+        assert CursorAddon._is_textual_content_type(ct) is True
+
+    @pytest.mark.parametrize("ct", [
+        "",
+        None,
+        "application/octet-stream",
+        "image/png",
+        "application/connect+proto",
+        "application/grpc",
+    ])
+    def test_non_textual_types(self, ct):
+        assert CursorAddon._is_textual_content_type(ct) is False
+
+
+# ---------------------------------------------------------------------------
+# Cursor debug flag — wired up via SANDCAT_MITM_DEBUG.
+# ---------------------------------------------------------------------------
+
+class TestCursorDebugFlag:
+    def test_debug_disabled_by_default(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("SANDCAT_MITM_DEBUG", raising=False)
+        settings = {"env": {"A": "1"}}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = CursorAddon()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        assert addon.debug_enabled is False
+
+    def test_debug_enabled_via_env_var(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SANDCAT_MITM_DEBUG", "1")
+        settings = {"env": {"A": "1"}}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = CursorAddon()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        assert addon.debug_enabled is True
+
+    def test_debug_enabled_via_settings(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("SANDCAT_MITM_DEBUG", raising=False)
+        settings = {"env": {"SANDCAT_MITM_DEBUG": "true"}}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = CursorAddon()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        assert addon.debug_enabled is True
+
+    def test_claude_does_not_read_debug_flag(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SANDCAT_MITM_DEBUG", "1")
+        settings = {"env": {"A": "1"}}
+        p = tmp_path / "settings.json"
+        p.write_text(json.dumps(settings))
+        env_path = tmp_path / "sandcat.env"
+        addon = ClaudeAddon()
+        with patch(f"{_COMMON}.SETTINGS_PATHS", [str(p)]), \
+             patch(f"{_COMMON}.SANDCAT_ENV_PATH", str(env_path)):
+            addon.load(MagicMock())
+        # Claude variant doesn't override _on_settings_merged → flag stays False.
+        assert addon.debug_enabled is False
