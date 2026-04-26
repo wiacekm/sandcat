@@ -57,16 +57,19 @@ teardown() {
 	assert_success
 }
 
-@test "customize_devcontainer_extensions removes placeholder with no extensions" {
+@test "customize_devcontainer_extensions removes __STACK_EXTENSIONS__ placeholder" {
+	# The placeholder line must always be consumed, regardless of whether
+	# the selected stacks contribute any extension. Bats has no parametric
+	# tests, so we cover both branches in a single test:
+	#   - "node"   — no extension contribution
+	#   - "python" — contributes an extension
 	customize_devcontainer_extensions "$DEVCONTAINER_JSON" node
-
 	run grep "__STACK_EXTENSIONS__" "$DEVCONTAINER_JSON"
 	assert_failure
-}
 
-@test "customize_devcontainer_extensions removes placeholder when extensions added" {
+	# Re-run with an extension-contributing stack on a fresh fixture.
+	cp "$SCT_TEMPLATEDIR/devcontainer/devcontainer.json" "$DEVCONTAINER_JSON"
 	customize_devcontainer_extensions "$DEVCONTAINER_JSON" python
-
 	run grep "__STACK_EXTENSIONS__" "$DEVCONTAINER_JSON"
 	assert_failure
 }
@@ -119,14 +122,24 @@ teardown() {
 	run grep '/scripts/mitmproxy_addon_claude.py' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
 	assert_success
 
+	# Streaming-related flags are Cursor-only; including them on the Claude
+	# path would weaken the body-content placeholder leak check in
+	# _substitute_secrets (mitmproxy buffers <1MB bodies by default).
 	run grep 'stream_large_bodies=1m' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
-	assert_success
+	assert_failure
 
 	run grep 'connection_strategy=lazy' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
-	assert_success
+	assert_failure
 
 	run grep 'anticomp=true' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
-	assert_success
+	assert_failure
+
+	run grep 'timeout_read=300' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+	assert_failure
+
+	# Placeholder must be fully resolved.
+	run grep '__AGENT_MITM_STREAMING_FLAGS__' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+	assert_failure
 }
 
 @test "customize_agent_templates adds cursor bootstrap settings" {
@@ -148,6 +161,18 @@ teardown() {
 	run grep '/scripts/mitmproxy_addon_cursor.py' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
 	assert_success
 
+	run grep 'stream_large_bodies=1m' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+	assert_success
+
+	run grep 'connection_strategy=lazy' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+	assert_success
+
+	run grep 'anticomp=true' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+	assert_success
+
 	run grep 'timeout_read=300' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
 	assert_success
+
+	run grep '__AGENT_MITM_STREAMING_FLAGS__' "$BATS_TEST_TMPDIR/sandcat/compose-proxy.yml"
+	assert_failure
 }

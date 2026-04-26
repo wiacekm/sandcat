@@ -498,6 +498,22 @@ Cursor CLI support is available via `sandcat init --agent cursor`.
     streaming-safe mitmproxy
     flags such as `stream_large_bodies=1m`, `connection_strategy=lazy`,
     `anticomp=true`, and `timeout_read=300`).
+
+    Those streaming-safe flags are **Cursor-only** — they are intentionally
+    omitted on the Claude path (`sct_agent_mitm_streaming_flags`). With
+    `stream_large_bodies` unset, mitmproxy buffers request bodies up to ~1 MB
+    before forwarding, which lets the addon's `_substitute_secrets` run a
+    body-content scan for placeholder leaks. Setting them on Claude would
+    weaken that defence-in-depth check; on Cursor they are required to keep
+    Connect/HTTP-2 streaming responses stable, and the body-leak check is
+    instead enforced via header/URL scans plus the textual-only body-mutation
+    gate (binary protobuf bodies are left untouched).
+  - **Streaming detection is path-only.** The Cursor addon decides whether a
+    request is streaming purely from the request path
+    (`/agent.v1.AgentService/Run*`, `/aiserver.v1.RepositoryService/...`).
+    A client-supplied `content-type: application/connect+proto` header alone
+    is **not** sufficient — accepting it would let any request with the right
+    header bypass body substitution and the placeholder leak check.
   These defaults are conservative and may be relaxed when Cursor proxy behavior
   is consistently stable across environments.
 - Use `CURSOR_API_KEY` in your user settings for Cursor authentication.

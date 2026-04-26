@@ -5,6 +5,15 @@ This variant builds on the shared :mod:`mitmproxy_addon_common` library and
 adds Cursor-specific behaviour:
 
   - Cursor Connect streaming traffic stays opaque (no body mutation).
+    Streaming detection is *path-only* (``/agent.v1.AgentService/Run*``,
+    ``/aiserver.v1.RepositoryService/...``) — we deliberately do not honour
+    a client-supplied ``content-type: application/connect+proto`` header,
+    because that would let any request with the right header bypass body
+    placeholder substitution and content-based leak detection.
+  - Body substitution applies only to textual content types (JSON, XML,
+    form-encoded, ``+json`` / ``+xml`` suffixes). Cursor's binary protobuf
+    payloads are not safe to mutate by-byte, and Cursor secret placeholders
+    only ride in URL/header/Basic-Auth surfaces anyway.
   - Placeholder substitution still applies to URL, headers, and Basic Auth.
   - Resolved secret values are stripped (whitespace / BOM) — common 401 cause.
   - The ``Authorization`` header is normalised after substitution.
@@ -67,20 +76,17 @@ class SandcatAddon(_SandcatAddonBase):
         )
 
     def _is_streaming_request(self, flow: http.HTTPFlow) -> bool:
+        # Streaming detection is path-only by design — see module docstring.
         host = flow.request.pretty_host.lower()
         if not self._is_cursor_host(host):
             return False
 
         path = flow.request.path
-        if (
+        return (
             path.startswith("/agent.v1.AgentService/Run")
             or path.startswith("/agent.v1.AgentService/RunSSE")
             or path.startswith("/aiserver.v1.RepositoryService/")
-        ):
-            return True
-
-        content_type = flow.request.headers.get("content-type", "")
-        return "application/connect+proto" in content_type.lower()
+        )
 
     @staticmethod
     def _prepare_streaming_request(flow: http.HTTPFlow):

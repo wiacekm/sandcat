@@ -255,7 +255,10 @@ EOF
 }
 
 # shellcheck disable=SC2016
-@test "customize_compose_file defaults Cursor config volumes to active entries" {
+@test "customize_compose_file dispatches to add_cursor_config_volumes for cursor agent" {
+	# We assert the dispatch (one Cursor-specific volume present) rather than
+	# re-listing every cursor mount; the per-volume contract is covered by
+	# `add_cursor_config_volumes adds AGENTS.md, rules, and skills`.
 	SETTINGS_FILE=".sandcat/settings.json"
 	mkdir -p "$BATS_TEST_TMPDIR/.sandcat"
 	touch "$BATS_TEST_TMPDIR/$SETTINGS_FILE"
@@ -263,15 +266,20 @@ EOF
 	customize_compose_file "$SETTINGS_FILE" "$COMPOSE_FILE" "cursor" "vscode" "test-project"
 
 	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/AGENTS.md:/home/vscode/.cursor/AGENTS.md:ro")' "$COMPOSE_FILE"
-	yq -e '.services.agent.volumes[] | select(. == "${HOME}/.cursor/rules:/home/vscode/.cursor/rules:ro")' "$COMPOSE_FILE"
+	# No claude volumes leak through when agent=cursor.
+	run yq '.services.agent.volumes[] | select(test("\\.claude/"))' "$COMPOSE_FILE"
+	assert_output ""
 }
 
 @test "set_proxy_tui_mode keeps addon path and mitm flags" {
+	# Claude path: streaming flags are intentionally absent so that
+	# _substitute_secrets keeps body-content leak detection. set_proxy_tui_mode
+	# must not silently re-introduce them by rewriting the command line.
 	local proxy_compose="$BATS_TEST_TMPDIR/compose-proxy.yml"
 	cat >"$proxy_compose" <<'YAML'
 services:
   mitmproxy:
-    command: mitmweb --mode wireguard --web-host 0.0.0.0 --set web_password=mitmproxy --set http2=true --set stream_large_bodies=1m --set connection_strategy=lazy --set anticomp=true --set timeout_read=300 -s /scripts/mitmproxy_addon_claude.py
+    command: mitmweb --mode wireguard --web-host 0.0.0.0 --set web_password=mitmproxy --set http2=true -s /scripts/mitmproxy_addon_claude.py
     ports:
       - "8081"
 YAML
@@ -279,13 +287,10 @@ YAML
 	set_proxy_tui_mode "$proxy_compose"
 
 	run yq -r '.services.mitmproxy.command' "$proxy_compose"
-	assert_output "mitmdump --mode wireguard --web-host 0.0.0.0 --set web_password=mitmproxy --set http2=true --set stream_large_bodies=1m --set connection_strategy=lazy --set anticomp=true --set timeout_read=300 -s /scripts/mitmproxy_addon_claude.py"
+	assert_output "mitmdump --mode wireguard --web-host 0.0.0.0 --set web_password=mitmproxy --set http2=true -s /scripts/mitmproxy_addon_claude.py"
 
-	yq -e '.services.mitmproxy.command | contains("stream_large_bodies=1m")' "$proxy_compose"
-	yq -e '.services.mitmproxy.command | contains("connection_strategy=lazy")' "$proxy_compose"
-	yq -e '.services.mitmproxy.command | contains("anticomp=true")' "$proxy_compose"
-	yq -e '.services.mitmproxy.command | contains("timeout_read=300")' "$proxy_compose"
 	yq -e '.services.mitmproxy.command | contains("/scripts/mitmproxy_addon_claude.py")' "$proxy_compose"
+	yq -e '.services.mitmproxy.command | contains("stream_large_bodies") | not' "$proxy_compose"
 	yq -e '.services.mitmproxy | has("ports") | not' "$proxy_compose"
 }
 

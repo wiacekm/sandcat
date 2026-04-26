@@ -19,7 +19,6 @@ services:
       # containers should never write to this.
       - mitmproxy-config:/mitmproxy-config:ro
     command: sleep infinity
-    __AGENT_ENVIRONMENT_BLOCK__
     depends_on:
       wg-client:
         condition: service_healthy

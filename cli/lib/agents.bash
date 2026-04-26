@@ -31,6 +31,78 @@ sct_agent_mount_env_var() {
 	esac
 }
 
+# Pre-creates the host paths that the optional agent config mounts will bind
+# read-only into the container. Without this, Docker materialises any missing
+# bind source as a root-owned empty directory in the user's $HOME — annoying
+# to clean up and confusing because the directory shows up out of nowhere.
+#
+# Each path on its own line. Lines ending with '/' are treated as directories,
+# everything else as files (touch -a). Pre-creating only happens when the
+# agent's mount env var is "true" (or unset, which defaults to true via
+# customize_compose_file).
+#
+# Args:
+#   $1 - Agent name
+sct_agent_host_config_paths() {
+	local agent=$1
+	case "$agent" in
+		claude)
+			cat <<'EOF'
+$HOME/.claude/agents/
+$HOME/.claude/commands/
+$HOME/.claude/CLAUDE.md
+EOF
+			;;
+		cursor)
+			cat <<'EOF'
+$HOME/.cursor/rules/
+$HOME/.cursor/skills/
+$HOME/.cursor/AGENTS.md
+EOF
+			;;
+		*)
+			echo ""
+			;;
+	esac
+}
+
+# Pre-creates host config paths for the selected agent so Docker doesn't have
+# to invent them as root-owned. No-op when the user opts out of the optional
+# config mount via SANDCAT_MOUNT_<AGENT>_CONFIG=false.
+#
+# Args:
+#   $1 - Agent name
+ensure_host_agent_config_paths() {
+	local agent=$1
+	local mount_var
+	mount_var=$(sct_agent_mount_env_var "$agent")
+	if [[ -z "$mount_var" ]]; then
+		return 0
+	fi
+
+	# Match the default in customize_compose_file: missing/unset means true.
+	local mount_value="${!mount_var:-true}"
+	if [[ "$mount_value" != "true" ]]; then
+		return 0
+	fi
+
+	local line expanded
+	while IFS= read -r line; do
+		[[ -z "$line" ]] && continue
+		# Expand $HOME and other simple env vars without invoking eval on
+		# untrusted input (the values come from this file, not user input).
+		expanded="${line//\$HOME/$HOME}"
+		if [[ "$expanded" == */ ]]; then
+			mkdir -p "${expanded%/}"
+		else
+			mkdir -p "$(dirname "$expanded")"
+			# touch -a updates atime only; creates the file if missing
+			# without bumping mtime when it already exists.
+			touch -a "$expanded"
+		fi
+	done < <(sct_agent_host_config_paths "$agent")
+}
+
 # Returns one-line API key help text for init output.
 # Args:
 #   $1 - Agent name
@@ -40,6 +112,47 @@ sct_agent_api_key_help() {
 		claude) echo "ANTHROPIC_API_KEY  your Anthropic API key (for Claude Code)" ;;
 		cursor) echo "CURSOR_API_KEY     your Cursor API key (for Cursor CLI)" ;;
 		*)      echo "ANTHROPIC_API_KEY  API key for your selected agent" ;;
+	esac
+}
+
+# Returns the 1Password reference example for the agent's primary API key,
+# rendered as the user-settings line shown in init's "next steps" section.
+#
+# Args:
+#   $1 - Agent name
+sct_agent_op_api_key_help() {
+	local agent=$1
+	case "$agent" in
+		cursor)
+			echo "CURSOR_API_KEY     \"op\": \"op://vault/Cursor API Key/credential\""
+			;;
+		claude|*)
+			echo "ANTHROPIC_API_KEY  \"op\": \"op://vault/Anthropic API Key/credential\""
+			;;
+	esac
+}
+
+# Hook fired right after `init` creates the user-settings file, used by
+# agents that need to seed agent-specific defaults into the JSON without
+# overwriting user-provided values.
+#
+# Implementations need access to sct_home (constants.bash) and live in
+# `init` (e.g. ensure_cursor_user_settings_defaults). The hook just
+# dispatches to the right helper or no-ops for agents that don't need one.
+#
+# Args:
+#   $1 - Agent name
+sct_agent_post_user_settings_hook() {
+	local agent=$1
+	case "$agent" in
+		cursor)
+			if declare -F ensure_cursor_user_settings_defaults >/dev/null; then
+				ensure_cursor_user_settings_defaults
+			fi
+			;;
+		*)
+			return 0
+			;;
 	esac
 }
 
@@ -86,19 +199,18 @@ EOF
 	esac
 }
 
-# Returns compose fragment for services.agent environment (full YAML block).
-# For agents with no compose-level env vars, returns empty (omit key entirely —
-# Docker Compose rejects `environment:` with no mapping).
+# Returns the agent's services.agent environment entries as KEY=VALUE lines,
+# one per line. The caller is responsible for emitting the YAML `environment:`
+# key only when the result is non-empty — Docker Compose rejects an empty
+# `environment: {}` block.
+#
 # Args:
 #   $1 - Agent name
-sct_agent_compose_environment_block() {
+sct_agent_compose_environment_entries() {
 	local agent=$1
 	case "$agent" in
 		claude)
-			cat <<'EOF'
-    environment:
-      - CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-EOF
+			echo "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"
 			;;
 		cursor|*)
 			echo ""
@@ -152,6 +264,32 @@ RUN mkdir -p /home/vscode/.cursor /home/vscode/.config/cursor
 EOF
 			;;
 		*)
+			echo ""
+			;;
+	esac
+}
+
+# Returns mitmproxy --set flags that affect streaming-body handling.
+#
+# Cursor's API uses Connect/HTTP-2 streaming for agent calls. Mitmproxy needs
+# stream_large_bodies (don't buffer >1MB), connection_strategy=lazy, anticomp,
+# and a long read timeout to keep those streams stable.
+#
+# Claude's traffic is plain JSON request/response, so leaving the body
+# buffered means _substitute_secrets in the addon can run a content-based
+# placeholder leak check (see mitmproxy_addon_common.py:_substitute_secrets).
+# Returning the flags for Claude would weaken that check, so the dispatcher
+# returns an empty string for Claude and the unknown-agent fallback.
+#
+# Args:
+#   $1 - Agent name
+sct_agent_mitm_streaming_flags() {
+	local agent=$1
+	case "$agent" in
+		cursor)
+			echo "--set stream_large_bodies=1m --set connection_strategy=lazy --set anticomp=true --set timeout_read=300"
+			;;
+		claude|*)
 			echo ""
 			;;
 	esac

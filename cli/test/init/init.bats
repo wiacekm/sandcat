@@ -14,6 +14,11 @@ setup() {
 	mkdir -p "$SCT_HOME_DIR"
 	sct_home() { echo "$SCT_HOME_DIR"; }
 	export -f sct_home
+
+	# Isolate $HOME so ensure_host_agent_config_paths doesn't poke the real
+	# user's ~/.claude / ~/.cursor while running the test suite.
+	export HOME="$BATS_TEST_TMPDIR/home"
+	mkdir -p "$HOME"
 }
 
 teardown() {
@@ -106,6 +111,47 @@ teardown() {
 	run init --path "$PROJECT_DIR"
 
 	assert_success
+}
+
+@test "init pre-creates host paths for claude config mount" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json claude vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent claude --ide vscode --name test --stacks * --proxy web : :"
+
+	run init --agent claude --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features ""
+	assert_success
+
+	# Directories pre-created so Docker won't materialise them as root-owned
+	[[ -d "$HOME/.claude/agents" ]]
+	[[ -d "$HOME/.claude/commands" ]]
+	[[ -f "$HOME/.claude/CLAUDE.md" ]]
+}
+
+@test "init pre-creates host paths for cursor config mount" {
+	stub settings "$PROJECT_DIR/.sandcat/settings.json cursor vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent cursor --ide vscode --name test --stacks * --proxy web : :"
+
+	run init --agent cursor --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features ""
+	assert_success
+
+	[[ -d "$HOME/.cursor/rules" ]]
+	[[ -d "$HOME/.cursor/skills" ]]
+	[[ -f "$HOME/.cursor/AGENTS.md" ]]
+}
+
+@test "init skips host pre-creation when SANDCAT_MOUNT_CURSOR_CONFIG=false" {
+	export SANDCAT_MOUNT_CURSOR_CONFIG=false
+
+	stub settings "$PROJECT_DIR/.sandcat/settings.json cursor vscode : :"
+	stub devcontainer \
+		"--settings-file .sandcat/settings.json --project-path * --agent cursor --ide vscode --name test --stacks * --proxy web : :"
+
+	run init --agent cursor --ide vscode --name test --path "$PROJECT_DIR" --stacks "" --proxy web --features ""
+	assert_success
+
+	[[ ! -d "$HOME/.cursor/rules" ]]
+	[[ ! -e "$HOME/.cursor/AGENTS.md" ]]
 }
 
 @test "init interactive flow (devcontainer mode)" {

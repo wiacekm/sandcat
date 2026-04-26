@@ -91,6 +91,79 @@ customize_devcontainer_extensions() {
 	mv "$tmpfile" "$devcontainer_json"
 }
 
+# Whole-line placeholder replacement.
+#
+# For each line in <file>: if the line contains <tokenN>, replace the *entire*
+# line with <replacementN> (which may itself span multiple lines). When
+# <replacementN> is empty, the placeholder line is dropped entirely.
+#
+# Tokens are matched in order; the first match per line wins.
+#
+# Args:
+#   $1     - File to modify in place
+#   $2..$N - Alternating <token> <replacement> pairs
+apply_template_placeholders() {
+	local file=$1
+	shift
+
+	local tokens=() replacements=()
+	while [[ $# -ge 2 ]]; do
+		tokens+=("$1")
+		replacements+=("$2")
+		shift 2
+	done
+
+	local tmpfile="${file}.tmp"
+	local line i matched
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		matched=0
+		for i in "${!tokens[@]}"; do
+			if [[ "$line" == *"${tokens[$i]}"* ]]; then
+				matched=1
+				if [[ -n "${replacements[$i]}" ]]; then
+					printf '%s\n' "${replacements[$i]}"
+				fi
+				break
+			fi
+		done
+		if [[ "$matched" == 0 ]]; then
+			printf '%s\n' "$line"
+		fi
+	done < "$file" > "$tmpfile"
+	mv "$tmpfile" "$file"
+}
+
+# In-line placeholder replacement.
+#
+# For each line: replace every occurrence of <tokenN> with <replacementN>.
+# Use this when the placeholder is embedded inside a longer line (e.g. the
+# mitmproxy command line) rather than occupying the whole line.
+#
+# Args:
+#   $1     - File to modify in place
+#   $2..$N - Alternating <token> <replacement> pairs
+apply_inline_placeholders() {
+	local file=$1
+	shift
+
+	local tokens=() replacements=()
+	while [[ $# -ge 2 ]]; do
+		tokens+=("$1")
+		replacements+=("$2")
+		shift 2
+	done
+
+	local tmpfile="${file}.tmp"
+	local line i
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		for i in "${!tokens[@]}"; do
+			line="${line//${tokens[$i]}/${replacements[$i]}}"
+		done
+		printf '%s\n' "$line"
+	done < "$file" > "$tmpfile"
+	mv "$tmpfile" "$file"
+}
+
 # Replaces provider-specific placeholders in generated templates.
 # Args:
 #   $1 - Path to devcontainer directory
@@ -99,14 +172,15 @@ customize_agent_templates() {
 	local devcontainer_dir=$1
 	local agent=$2
 
-	local extension settings_block environment_block docker_install_block docker_home_prep_block user_init_block
-	local mitm_addon_file mitm_http2
+	local extension settings_block environment_entries docker_install_block docker_home_prep_block user_init_block
+	local mitm_addon_file mitm_http2 mitm_streaming_flags
 	extension=$(sct_agent_vscode_extension "$agent")
 	settings_block=$(sct_agent_devcontainer_settings_block "$agent")
-	environment_block=$(sct_agent_compose_environment_block "$agent")
+	environment_entries=$(sct_agent_compose_environment_entries "$agent")
 	docker_install_block=$(sct_agent_docker_install_block "$agent")
 	docker_home_prep_block=$(sct_agent_docker_home_prep_block "$agent")
 	user_init_block=$(sct_agent_user_init_block "$agent")
+	mitm_streaming_flags=$(sct_agent_mitm_streaming_flags "$agent")
 	case "$agent" in
 		cursor)
 			mitm_addon_file="mitmproxy_addon_cursor.py"
@@ -118,74 +192,52 @@ customize_agent_templates() {
 			;;
 	esac
 
-	local tmpfile
+	# Pre-format the extension entry so apply_template_placeholders can drop
+	# the placeholder line wholesale when no extension is contributed.
+	local extension_replacement=""
+	if [[ -n "$extension" ]]; then
+		extension_replacement=$(printf '\t\t\t\t"%s",' "$extension")
+	fi
 
-	# devcontainer.json placeholders
-	tmpfile="$devcontainer_dir/devcontainer.json.tmp"
-	while IFS= read -r line || [[ -n "$line" ]]; do
-		if [[ "$line" == *"__AGENT_EXTENSION__"* ]]; then
-			if [[ -n "$extension" ]]; then
-				printf '				"%s",\n' "$extension"
-			fi
-		elif [[ "$line" == *"__AGENT_SETTINGS__"* ]]; then
-			if [[ -n "$settings_block" ]]; then
-				printf '%s\n' "$settings_block"
-			fi
-		else
-			printf '%s\n' "$line"
-		fi
-	done < "$devcontainer_dir/devcontainer.json" > "$tmpfile"
-	mv "$tmpfile" "$devcontainer_dir/devcontainer.json"
+	apply_template_placeholders \
+		"$devcontainer_dir/devcontainer.json" \
+		"__AGENT_EXTENSION__" "$extension_replacement" \
+		"__AGENT_SETTINGS__"  "$settings_block"
 
-	# compose-all.yml placeholder (omit entire block when agent has no env entries)
-	tmpfile="$devcontainer_dir/compose-all.yml.tmp"
-	while IFS= read -r line || [[ -n "$line" ]]; do
-		if [[ "$line" == *"__AGENT_ENVIRONMENT_BLOCK__"* ]]; then
-			if [[ -n "$environment_block" ]]; then
-				printf '%s\n' "$environment_block"
-			fi
-		else
-			printf '%s\n' "$line"
-		fi
-	done < "$devcontainer_dir/compose-all.yml" > "$tmpfile"
-	mv "$tmpfile" "$devcontainer_dir/compose-all.yml"
+	# services.agent.environment is added via yq only when the agent
+	# contributes entries — compose rejects `environment: {}`. Building the
+	# array structurally avoids fragile line-counting in compose-all.yml.
+	if [[ -n "$environment_entries" ]]; then
+		local entry yq_array=""
+		while IFS= read -r entry; do
+			[[ -z "$entry" ]] && continue
+			# Wrap each entry as a JSON string for yq's expression parser;
+			# escape backslashes and double quotes so KEY=VALUE pairs with
+			# special characters round-trip correctly.
+			local escaped="${entry//\\/\\\\}"
+			escaped="${escaped//\"/\\\"}"
+			yq_array+="\"${escaped}\","
+		done <<< "$environment_entries"
+		yq_array="[${yq_array%,}]"
+		yq -i ".services.agent.environment = ${yq_array}" "$devcontainer_dir/compose-all.yml"
+	fi
 
-	# Dockerfile provider install/home blocks
-	tmpfile="$devcontainer_dir/Dockerfile.app.tmp"
-	while IFS= read -r line || [[ -n "$line" ]]; do
-		if [[ "$line" == *"__AGENT_DOCKER_INSTALL__"* ]]; then
-			if [[ -n "$docker_install_block" ]]; then
-				printf '%s\n' "$docker_install_block"
-			fi
-		elif [[ "$line" == *"__AGENT_DOCKER_HOME_PREP__"* ]]; then
-			if [[ -n "$docker_home_prep_block" ]]; then
-				printf '%s\n' "$docker_home_prep_block"
-			fi
-		else
-			printf '%s\n' "$line"
-		fi
-	done < "$devcontainer_dir/Dockerfile.app" > "$tmpfile"
-	mv "$tmpfile" "$devcontainer_dir/Dockerfile.app"
+	apply_template_placeholders \
+		"$devcontainer_dir/Dockerfile.app" \
+		"__AGENT_DOCKER_INSTALL__"   "$docker_install_block" \
+		"__AGENT_DOCKER_HOME_PREP__" "$docker_home_prep_block"
 
-	# app-user-init provider block
-	tmpfile="$devcontainer_dir/sandcat/scripts/app-user-init.sh.tmp"
-	while IFS= read -r line || [[ -n "$line" ]]; do
-		if [[ "$line" == *"__AGENT_USER_INIT__"* ]]; then
-			if [[ -n "$user_init_block" ]]; then
-				printf '%s\n' "$user_init_block"
-			fi
-		else
-			printf '%s\n' "$line"
-		fi
-	done < "$devcontainer_dir/sandcat/scripts/app-user-init.sh" > "$tmpfile"
-	mv "$tmpfile" "$devcontainer_dir/sandcat/scripts/app-user-init.sh"
+	apply_template_placeholders \
+		"$devcontainer_dir/sandcat/scripts/app-user-init.sh" \
+		"__AGENT_USER_INIT__" "$user_init_block"
 
-	# mitmproxy command/addon placeholders
-	tmpfile="$devcontainer_dir/sandcat/compose-proxy.yml.tmp"
-	while IFS= read -r line || [[ -n "$line" ]]; do
-		line="${line//__AGENT_MITM_ADDON__/$mitm_addon_file}"
-		line="${line//__MITM_HTTP2__/$mitm_http2}"
-		printf '%s\n' "$line"
-	done < "$devcontainer_dir/sandcat/compose-proxy.yml" > "$tmpfile"
-	mv "$tmpfile" "$devcontainer_dir/sandcat/compose-proxy.yml"
+	# mitmproxy command/addon placeholders are inline (embedded in the
+	# `command:` line). When streaming flags expand to empty (Claude path),
+	# the resulting double space between adjacent tokens is harmless for
+	# shell argv splitting.
+	apply_inline_placeholders \
+		"$devcontainer_dir/sandcat/compose-proxy.yml" \
+		"__AGENT_MITM_ADDON__"           "$mitm_addon_file" \
+		"__MITM_HTTP2__"                 "$mitm_http2" \
+		"__AGENT_MITM_STREAMING_FLAGS__" "$mitm_streaming_flags"
 }

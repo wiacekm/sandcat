@@ -466,11 +466,13 @@ class TestCursorStreaming:
         assert addon._is_streaming_request(flow) is True
 
     def test_non_cursor_host_not_streaming(self):
+        # Even if the path looks Cursor-like, a non-Cursor host should never
+        # be classified as streaming.
         addon = self._make_addon()
         flow = _make_flow(
             method="POST",
             host="api.openai.com",
-            headers={"content-type": "application/connect+proto"},
+            url="https://api.openai.com/agent.v1.AgentService/Run",
         )
         assert addon._is_streaming_request(flow) is False
 
@@ -483,6 +485,20 @@ class TestCursorStreaming:
         )
         assert addon._is_streaming_request(flow) is False
 
+    def test_content_type_alone_does_not_trigger_streaming(self):
+        # Regression: a client-supplied application/connect+proto content-type
+        # must NOT flip on streaming when the path is unrelated. Otherwise
+        # any request with the right header could bypass body substitution
+        # and the content-based placeholder leak check.
+        addon = self._make_addon()
+        flow = _make_flow(
+            method="POST",
+            host="api.cursor.sh",
+            url="https://api.cursor.sh/some/other/endpoint",
+            headers={"content-type": "application/connect+proto"},
+        )
+        assert addon._is_streaming_request(flow) is False
+
     def test_claude_responseheaders_is_noop(self):
         """Base behaviour: never touches the response stream flag."""
         addon = ClaudeAddon()
@@ -490,6 +506,68 @@ class TestCursorStreaming:
         flow.response = types.SimpleNamespace(stream=False)
         addon.responseheaders(flow)
         assert flow.response.stream is False
+
+    def test_cursor_responseheaders_noop_for_non_streaming(self):
+        """Non-streaming Cursor requests must not be marked stream=True.
+
+        Otherwise mitmproxy would skip body buffering on regular JSON
+        endpoints, defeating the body-content placeholder leak check.
+        """
+        addon = self._make_addon()
+        flow = _make_flow(
+            method="GET",
+            host="cursor.com",
+            url="https://cursor.com/about",
+        )
+        flow.response = types.SimpleNamespace(stream=False)
+        addon.responseheaders(flow)
+        assert flow.response.stream is False
+
+    def test_streaming_to_disallowed_host_blocks_authorization_leak(self):
+        """Even on a streaming path, leak detection in `_substitute_secrets`
+        must run on URL/header/Basic-Auth surfaces.
+
+        The network allowlist may permit a host via wildcard, but the
+        secret's per-key allowlist (`hosts`) is narrower. A streaming POST
+        whose Authorization header carries the placeholder, addressed to a
+        host that is *not* in the secret's hosts, must yield a 403.
+        """
+        addon = CursorAddon()
+        addon.network_rules = [{"action": "allow", "host": "*"}]
+        # Secret only allowed for api-allowed.cursor.sh, but the request
+        # below goes to api2.cursor.sh.
+        addon.secrets = {
+            "CURSOR_API_KEY": {
+                "value": "cursor-secret",
+                "hosts": ["api-allowed.cursor.sh"],
+                "placeholder": "SANDCAT_PLACEHOLDER_CURSOR_API_KEY",
+            }
+        }
+
+        flow = _make_flow(
+            method="POST",
+            host="api2.cursor.sh",
+            url="https://api2.cursor.sh/agent.v1.AgentService/RunSSE",
+            headers={
+                "content-type": "application/connect+proto",
+                "authorization": "Bearer SANDCAT_PLACEHOLDER_CURSOR_API_KEY",
+            },
+            content=b"\x00\x00\x00\x00&",
+        )
+        # Sanity check: this IS a streaming path so the body-side substitution
+        # would skip — the leak detection has to fire from the auth header.
+        assert addon._is_streaming_request(flow) is True
+
+        addon.request(flow)
+
+        assert flow.response is not None
+        # Stub ``http.Response.make`` returns ``{"status", "body", "headers"}``.
+        assert flow.response["status"] == 403
+        assert b"CURSOR_API_KEY" in flow.response["body"]
+        # The original placeholder must NOT have been substituted.
+        assert flow.request.headers["authorization"] == (
+            "Bearer SANDCAT_PLACEHOLDER_CURSOR_API_KEY"
+        )
 
 
 # ---------------------------------------------------------------------------

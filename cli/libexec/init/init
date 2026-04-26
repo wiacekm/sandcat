@@ -299,9 +299,12 @@ init() {
 	fi
 
 	create_user_settings "$agent"
-	if [[ "$agent" == "cursor" ]]; then
-		ensure_cursor_user_settings_defaults
-	fi
+	# Agent-specific user-settings seeding (e.g. cursor's CURSOR_API_KEY hosts).
+	sct_agent_post_user_settings_hook "$agent"
+
+	# Pre-create host paths that the optional agent config mounts will bind,
+	# so Docker doesn't auto-create them as root-owned dirs in the user's home.
+	ensure_host_agent_config_paths "$agent"
 
 	if [[ "$onepassword" == "true" ]]; then
 		add_op_token_to_user_settings
@@ -338,11 +341,7 @@ init() {
 	echo "Next steps:" | info
 	echo "  Edit ~/.config/sandcat/settings.json to add your API keys:" | info
 	if [[ "$onepassword" == "true" ]]; then
-		if [[ "$agent" == "cursor" ]]; then
-			echo "    CURSOR_API_KEY     \"op\": \"op://vault/Cursor API Key/credential\"" | info
-		else
-			echo "    ANTHROPIC_API_KEY  \"op\": \"op://vault/Anthropic API Key/credential\"" | info
-		fi
+		echo "    $(sct_agent_op_api_key_help "$agent")" | info
 		echo "    GITHUB_TOKEN       \"op\": \"op://vault/GitHub Token/credential\"" | info
 		echo "    (adjust vault/item names to match your 1Password setup," | info
 		echo "     or use plain values with \"value\": \"sk-ant-...\")" | info
