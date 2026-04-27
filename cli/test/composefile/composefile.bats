@@ -287,7 +287,7 @@ YAML
 	set_proxy_tui_mode "$proxy_compose"
 
 	run yq -r '.services.mitmproxy.command' "$proxy_compose"
-	assert_output "mitmdump --mode wireguard --web-host 0.0.0.0 --set web_password=mitmproxy --set http2=true -s /scripts/mitmproxy_addon_claude.py"
+	assert_output "mitmdump --mode wireguard --set http2=true -s /scripts/mitmproxy_addon_claude.py"
 
 	yq -e '.services.mitmproxy.command | contains("/scripts/mitmproxy_addon_claude.py")' "$proxy_compose"
 	yq -e '.services.mitmproxy.command | contains("stream_large_bodies") | not' "$proxy_compose"

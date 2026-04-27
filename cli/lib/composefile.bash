@@ -86,7 +86,8 @@ enable_1password() {
 }
 
 # Switches the mitmproxy service from web UI to console (mitmdump) mode.
-# Replaces the mitmweb command with mitmdump and removes the web UI port.
+# Replaces the mitmweb command with mitmdump, strips mitmweb-only flags
+# (--web-host and --set web_password), and removes the web UI port.
 # mitmdump logs flows as text to stdout, viewable via docker compose logs.
 # Args:
 #   $1 - Path to the compose-proxy.yml file
@@ -95,7 +96,11 @@ set_proxy_tui_mode() {
 	local compose_file=$1
 
 	yq -i '
-		.services.mitmproxy.command |= sub("^mitmweb\\b", "mitmdump") |
+		.services.mitmproxy.command |= (
+			sub("^mitmweb\\b", "mitmdump") |
+			sub("\\s+--web-host\\s+\\S+", "") |
+			sub("\\s+--set\\s+web_password=\\S+", "")
+		) |
 		del(.services.mitmproxy.ports)
 	' "$compose_file"
 }
@@ -230,7 +235,7 @@ add_cursor_config_volumes() {
 	add_volume_entry "$compose_file" '${HOME}/.cursor/AGENTS.md:/home/vscode/.cursor/AGENTS.md:ro' "$active" 'Host Cursor config (optional)'
 	# shellcheck disable=SC2016
 	add_volume_entry "$compose_file" '${HOME}/.cursor/rules:/home/vscode/.cursor/rules:ro' "$active"
-		# shellcheck disable=SC2016
+	# shellcheck disable=SC2016
 	add_volume_entry "$compose_file" '${HOME}/.cursor/skills:/home/vscode/.cursor/skills:ro' "$active"
 }
 

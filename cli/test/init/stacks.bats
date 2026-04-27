@@ -58,7 +58,7 @@ teardown() {
 
 	run stack_extension dotnet
 	assert_output "ms-dotnettools.csdevkit"
-	
+
 	run stack_extension zig
 	assert_output "ziglang.vscode-zig"
 }
